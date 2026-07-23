@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Edit Card</title></head>
+  <body>
+    <h1>Edit Card</h1>
+    <form method="post" enctype="multipart/form-data">
+      <label>Name <input name="name" value="{{ card.name }}" required /></label><br />
+      <label>Variant <input name="variant" value="{{ card.variant }}" /></label><br />
+      <label>CollectionName <input name="collection_name" value="{{ card.collection_name }}" /></label><br />
+      <label>Number <input name="number" value="{{ card.number }}" /></label><br />
+      <label>CollectionNumber <input name="collection_number" value="{{ card.collection_number }}" /></label><br />
+      <label>Quantity <input name="quantity" type="number" min="0" value="{{ card.quantity }}" /></label><br />
+      <label>Value <input name="value" type="number" step="0.01" value="{{ card.value }}" /></label><br />
+      <label>Picture <input name="picture" type="file" accept="image/*" /></label><br />
+      <label>Extra Data JSON <textarea name="extra_data">{{ card.extra_data }}</textarea></label><br />
+      <button type="submit">Save</button>
+    </form>
+    <p><a href="/cards">Back</a></p>
+  </body>
+</html>
