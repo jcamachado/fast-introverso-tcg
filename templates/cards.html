@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cards</title>
+  </head>
+  <body>
+    <h1>Your Cards</h1>
+    <form method="post" action="/auth/logout"><button type="submit">Logout</button></form>
+    <p><a href="/apag">Create another</a></p>
+    <form method="post" action="/cards/share">
+      <table border="1" cellpadding="8" cellspacing="0">
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Picture</th>
+            <th>Name</th>
+            <th>Variant</th>
+            <th>CollectionName</th>
+            <th>Number</th>
+            <th>CollectionNumber</th>
+            <th>Quantity</th>
+            <th>Value</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for card in cards %}
+            <tr>
+              <td><input type="checkbox" name="selected_ids" value="{{ card.id }}" /></td>
+              <td>
+                <img
+                  src="{{ card.picture_path or placeholder_image }}"
+                  alt="{{ card.name }}"
+                  width="100"
+                  height="100"
+                  style="object-fit: cover"
+                />
+              </td>
+              <td>{{ card.name }}</td>
+              <td>{{ card.variant }}</td>
+              <td>{{ card.collection_name }}</td>
+              <td>{{ card.number }}</td>
+              <td>{{ card.collection_number }}</td>
+              <td>{{ card.quantity }}</td>
+              <td>{{ card.value }}</td>
+              <td>
+                <a href="/cards/{{ card.id }}/edit">Edit</a>
+                <form method="post" action="/cards/{{ card.id }}/delete" style="display:inline">
+                  <button type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button type="submit">Share</button>
+    </form>
+  </body>
+</html>
