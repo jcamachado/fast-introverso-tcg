@@ -1,0 +1,36 @@
+<!-- app/templates/edit.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Edit Card</title>
+    <style>
+        /* Same styles as create.html */
+    </style>
+</head>
+<body>
+    <h1>Edit Card</h1>
+    <form method="post" enctype="multipart/form-data">
+        <div class="form-group">
+            <label>Name:</label>
+            <input type="text" name="name" value="{{ card.name }}" required>
+        </div>
+        <div class="form-group">
+            <label>Variant:</label>
+            <input type="text" name="variant" value="{{ card.variant or '' }}">
+        </div>
+        <!-- ... similar for all fields ... -->
+        <div class="form-group">
+            <label>Current Picture:</label>
+            {% if card.picture_path %}
+                <img src="/static/{{ card.picture_path }}" style="max-width: 200px;">
+                <p>Upload new to replace</p>
+            {% else %}
+                <p>No image</p>
+            {% endif %}
+            <input type="file" name="picture" accept="image/*">
+        </div>
+        <button type="submit">Update Card</button>
+        <a href="/cards" class="btn-back">Cancel</a>
+    </form>
+</body>
+</html>
