@@ -182,6 +182,19 @@ async def share_cards(
 async def create_card_page(request: Request, current_user: User = Depends(get_current_user)):
     return templates.TemplateResponse("create.html", {"request": request, "user": current_user})
 
+@app.get("/cards/crop_card", response_class=HTMLResponse)
+async def crop_card_page(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
+    return templates.TemplateResponse(
+        "crop_cards.html",
+        {
+            "request": request,
+            "user": current_user
+        }
+    )
+
 @app.post("/cards/create")
 async def create_card(
     request: Request,

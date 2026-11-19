@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+
+{% block title %}Crop Card Image{% endblock %}
+
+{% block extra_css %}
+<style>
+    .crop-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+        gap: 24px;
+        align-items: start;
+    }
+
+    .crop-stage {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        background: #222;
+        line-height: 0;
+        overflow: hidden;
+    }
+
+    #sourceImage {
+        display: block;
+        max-width: 100%;
+        max-height: 70vh;
+    }
+
+    #selection {
+        position: absolute;
+        border: 2px solid white;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+        cursor: move;
+        touch-action: none;
+    }
+
+    #preview {
+        width: 100%;
+        aspect-ratio: 2.5 / 3.5;
+        background: #e9ecef;
+        object-fit: cover;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    @media (max-width: 768px) {
+        .crop-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="mb-1">Crop Card Image</h1>
+        <p class="text-muted mb-0">
+            Choose an image and position the crop area over the card.
+        </p>
+    </div>
+
+    <a href="/cards" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i>
+        Back to Cards
+    </a>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">
+    {{ error }}
+</div>
+{% endif %}
+
+<div class="mb-3">
+    <label for="fileInput" class="form-label">Choose Image</label>
+    <input
+        id="fileInput"
+        class="form-control"
+        type="file"
+        accept="image/*"
+    >
+</div>
+
+<div class="d-flex gap-2 flex-wrap mb-4">
+    <button id="resetButton" class="btn btn-secondary" type="button" disabled>
+        <i class="bi bi-arrow-counterclockwise"></i>
+        Reset Crop
+    </button>
+
+    <button id="saveButton" class="btn btn-primary" type="button" disabled>
+        <i class="bi bi-save"></i>
+        Save Cropped Image
+    </button>
+</div>
+
+<div class="crop-layout">
+    <div>
+        <div id="stage" class="crop-stage hidden">
+            <img id="sourceImage" alt="Selected card image">
+            <div id="selection"></div>
+        </div>
+    </div>
+
+    <div>
+        <h5>Preview</h5>
+        <canvas id="preview" class="border rounded"></canvas>
+    </div>
+</div>
+
+<form
+    id="cropForm"
+    method="post"
+    action="/cards/crop_card"
+    enctype="multipart/form-data"
+    class="hidden"
+>
+    <input id="croppedFile" name="picture" type="file">
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const fileInput = document.getElementById("fileInput");
+    const stage = document.getElementById("stage");
+    const sourceImage = document.getElementById("sourceImage");
+    const selection = document.getElementById("selection");
+    const preview = document.getElementById("preview");
+    const resetButton = document.getElementById("resetButton");
+    const saveButton = document.getElementById("saveButton");
+    const cropForm = document.getElementById("cropForm");
+    const croppedFile = document.getElementById("croppedFile");
+
+    let imageUrl = null;
+    let crop = null;
+    let dragStart = null;
+
+    function drawPreview() {
+        if (!sourceImage.naturalWidth || !crop) {
+            return;
+        }
+
+        const scaleX =
+            sourceImage.naturalWidth / sourceImage.clientWidth;
+
+        const scaleY =
+            sourceImage.naturalHeight / sourceImage.clientHeight;
+
+        preview.width = 500;
+        preview.height = 700;
+
+        const context = preview.getContext("2d");
+
+        context.clearRect(0, 0, preview.width, preview.height);
+
+        context.drawImage(
+            sourceImage,
+            crop.x * scaleX,
+            crop.y * scaleY,
+            crop.width * scaleX,
+            crop.height * scaleY,
+            0,
+            0,
+            preview.width,
+            preview.height
+        );
+    }
+
+    function renderSelection() {
+        selection.style.left = `${crop.x}px`;
+        selection.style.top = `${crop.y}px`;
+        selection.style.width = `${crop.width}px`;
+        selection.style.height = `${crop.height}px`;
+
+        drawPreview();
+    }
+
+    function resetCrop() {
+        const imageWidth = sourceImage.clientWidth;
+        const imageHeight = sourceImage.clientHeight;
+
+        let cropWidth = imageWidth;
+        let cropHeight = cropWidth * 3.5 / 2.5;
+
+        if (cropHeight > imageHeight) {
+            cropHeight = imageHeight;
+            cropWidth = cropHeight * 2.5 / 3.5;
+        }
+
+        crop = {
+            width: cropWidth,
+            height: cropHeight,
+            x: (imageWidth - cropWidth) / 2,
+            y: (imageHeight - cropHeight) / 2
+        };
+
+        renderSelection();
+    }
+
+    fileInput.addEventListener("change", function () {
+        const file = fileInput.files[0];
+
+        if (!file) {
+            return;
+        }
+
+        if (imageUrl) {
+            URL.revokeObjectURL(imageUrl);
+        }
+
+        imageUrl = URL.createObjectURL(file);
+        sourceImage.src = imageUrl;
+
+        sourceImage.onload = function () {
+            stage.classList.remove("hidden");
+            resetButton.disabled = false;
+            saveButton.disabled = false;
+            resetCrop();
+        };
+    });
+
+    resetButton.addEventListener("click", function () {
+        resetCrop();
+    });
+
+    selection.addEventListener("pointerdown", function (event) {
+        dragStart = {
+            x: event.clientX - crop.x,
+            y: event.clientY - crop.y
+        };
+
+        selection.setPointerCapture(event.pointerId);
+    });
+
+    selection.addEventListener("pointermove", function (event) {
+        if (!dragStart) {
+            return;
+        }
+
+        crop.x = Math.max(
+            0,
+            Math.min(
+                sourceImage.clientWidth - crop.width,
+                event.clientX - dragStart.x
+            )
+        );
+
+        crop.y = Math.max(
+            0,
+            Math.min(
+                sourceImage.clientHeight - crop.height,
+                event.clientY - dragStart.y
+            )
+        );
+
+        renderSelection();
+    });
+
+    selection.addEventListener("pointerup", function () {
+        dragStart = null;
+    });
+
+    saveButton.addEventListener("click", function () {
+        preview.toBlob(function (blob) {
+            const file = new File(
+                [blob],
+                "cropped-card.jpg",
+                { type: "image/jpeg" }
+            );
+
+            const transfer = new DataTransfer();
+            transfer.items.add(file);
+            croppedFile.files = transfer.files;
+
+            cropForm.submit();
+        }, "image/jpeg", 0.92);
+    });
+</script>
+{% endblock %}
