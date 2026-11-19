@@ -1,4 +1,4 @@
-# app/main.py
+# app/main.py (excerpt showing the relevant parts)
 from fastapi import FastAPI, Request, Form, UploadFile, File, Depends, HTTPException, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
@@ -11,9 +11,13 @@ import shutil
 from datetime import datetime
 from typing import List, Optional
 import json
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # IMPORTANT: These imports should be in this order
-from app.database import engine, Base, get_db  # get_db is imported here
+from app.database import engine, Base, get_db
 from app.models import User, Card
 from app.auth import hash_password, verify_password, authenticate_user, get_current_user, get_current_admin_user
 from app.admin import setup_admin
@@ -27,8 +31,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Templates
 templates = Jinja2Templates(directory="app/templates")
 
-# Setup admin
-setup_admin(app)
+# Setup admin - wrap in try/except for safety
+try:
+    setup_admin(app)
+    print("✓ Admin panel mounted at /admin")
+except Exception as e:
+    print(f"⚠️ Admin setup failed: {e}")
+    print("Continuing without admin panel...")
 
 @app.on_event("startup")
 async def startup():
@@ -325,3 +334,61 @@ async def delete_card(
     await db.commit()
     
     return RedirectResponse(url="/cards", status_code=303)
+
+
+# app/main.py - Add these routes
+
+@app.get("/register-admin", response_class=HTMLResponse)
+async def register_admin_page(request: Request):
+    """Show admin registration form"""
+    return templates.TemplateResponse(
+        "register_admin.html", 
+        {"request": request}
+    )
+
+@app.post("/register-admin")
+async def register_admin(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    admin_secret: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new admin user"""
+    # Check if admin secret matches
+    ADMIN_SECRET = os.getenv("ADMIN_SETUP_KEY", "change-me-in-production")
+    
+    if admin_secret != ADMIN_SECRET:
+        return templates.TemplateResponse(
+            "register_admin.html", 
+            {
+                "request": request, 
+                "error": "Invalid admin secret key"
+            }
+        )
+    
+    # Check if username already exists
+    result = await db.execute(select(User).where(User.username == username))
+    if result.scalar_one_or_none():
+        return templates.TemplateResponse(
+            "register_admin.html", 
+            {
+                "request": request, 
+                "error": "Username already exists"
+            }
+        )
+    
+    # Create admin user
+    new_user = User(
+        username=username,
+        password_hash=hash_password(password),
+        is_admin=True
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    
+    # Log them in immediately
+    response = RedirectResponse(url="/home", status_code=303)
+    response.set_cookie(key="user_id", value=str(new_user.id))
+    return response
