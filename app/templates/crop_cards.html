@@ -1,0 +1,904 @@
+{% extends "base.html" %}
+
+{% block title %}Crop Card Image{% endblock %}
+
+{% block extra_css %}
+<style>
+    .crop-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+        gap: 24px;
+        align-items: start;
+    }
+
+    .crop-stage {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        background: #222;
+        line-height: 0;
+        overflow: hidden;
+    }
+
+    #sourceCanvas,
+    #overlayCanvas {
+        display: block;
+        max-width: 100%;
+        max-height: 70vh;
+    }
+
+    #overlayCanvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+
+    #previewOptions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+    }
+
+    .crop-option {
+        padding: 8px;
+        border: 2px solid #dee2e6;
+        border-radius: 10px;
+        background: #fff;
+        cursor: pointer;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .crop-option:hover,
+    .crop-option.selected {
+        border-color: #3157d5;
+        box-shadow: 0 0 0 3px rgba(49, 87, 213, 0.12);
+    }
+
+    .crop-option canvas {
+        display: block;
+        width: 100%;
+        max-height: 28vh;
+        object-fit: contain;
+        background: #e9ecef;
+    }
+
+    .crop-option-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+        font-weight: 600;
+    }
+
+    .border-color-ball {
+        width: 12px;
+        height: 12px;
+        flex: 0 0 12px;
+        border-radius: 50%;
+        border: 1px solid rgba(0, 0, 0, 0.25);
+        box-shadow: 0 0 4px currentColor;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    @media (max-width: 768px) {
+        .crop-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="mb-1">Crop Card Image</h1>
+        <p class="text-muted mb-0">
+            Upload an image to detect and straighten a Pokemon card.
+        </p>
+    </div>
+
+    <a href="/cards" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i>
+        Back to Cards
+    </a>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+<div class="mb-3">
+    <label for="fileInput" class="form-label">Choose Image</label>
+    <input id="fileInput" class="form-control" type="file" accept="image/jpeg,image/png">
+</div>
+
+<div id="status" class="alert alert-info hidden" role="status"></div>
+
+<div id="detectedActions" class="d-flex gap-2 flex-wrap mb-4 hidden">
+    <button id="confirmButton" class="btn btn-success" type="button">
+        <i class="bi bi-check-circle"></i>
+        Confirm crop
+    </button>
+    <button id="scanAgainButton" class="btn btn-secondary" type="button">
+        <i class="bi bi-arrow-counterclockwise"></i>
+        Scan again
+    </button>
+</div>
+
+<div id="croppedActions" class="d-flex gap-2 flex-wrap mb-4 hidden">
+    <button id="saveButton" class="btn btn-primary" type="button">
+        <i class="bi bi-save"></i>
+        Save
+    </button>
+    <button id="downloadButton" class="btn btn-outline-primary" type="button">
+        <i class="bi bi-download"></i>
+        Save and Download
+    </button>
+</div>
+
+<div class="crop-layout">
+    <div>
+        <h5>Uploaded Image Preview</h5>
+        <div id="stage" class="crop-stage hidden">
+            <canvas id="sourceCanvas"></canvas>
+            <canvas id="overlayCanvas"></canvas>
+        </div>
+    </div>
+
+    <div>
+        <h5>Crop Preview</h5>
+        <div id="previewOptions"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script async src="https://docs.opencv.org/4.10.0/opencv.js"></script>
+<script>
+    const fileInput = document.getElementById("fileInput");
+    const stage = document.getElementById("stage");
+    const sourceCanvas = document.getElementById("sourceCanvas");
+    const overlayCanvas = document.getElementById("overlayCanvas");
+    const previewOptions = document.getElementById("previewOptions");
+    const status = document.getElementById("status");
+    const detectedActions = document.getElementById("detectedActions");
+    const croppedActions = document.getElementById("croppedActions");
+    const confirmButton = document.getElementById("confirmButton");
+    const scanAgainButton = document.getElementById("scanAgainButton");
+    const saveButton = document.getElementById("saveButton");
+    const downloadButton = document.getElementById("downloadButton");
+
+    let sourceImage = null;
+    let detectedQuad = null;
+    let detectedCandidates = [];
+    let selectedCandidateIndex = 0;
+    let croppedBlob = null;
+    let detectionWorker = null;
+    let borderAnimationFrame = null;
+    const borderColors = ["#35d07f", "#ff4d4f", "#4d79ff"];
+
+    function showStatus(message, type) {
+        status.textContent = message;
+        status.className = `alert alert-${type}`;
+    }
+
+    function distance(a, b) {
+        return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function orderQuad(points) {
+        const verticalOrder = points.slice().sort((a, b) => a.y - b.y);
+        const top = verticalOrder.slice(0, 2).sort((a, b) => a.x - b.x);
+        const bottom = verticalOrder.slice(2).sort((a, b) => a.x - b.x);
+
+        return [
+            top[0],
+            top[1],
+            bottom[1],
+            bottom[0]
+        ];
+    }
+
+    function quadAspectRatio(points) {
+        const top = distance(points[0], points[1]);
+        const right = distance(points[1], points[2]);
+        const bottom = distance(points[2], points[3]);
+        const left = distance(points[3], points[0]);
+        const width = (top + bottom) / 2;
+        const height = (left + right) / 2;
+        return width / height;
+    }
+
+    function clearOverlay() {
+        if (borderAnimationFrame) {
+            cancelAnimationFrame(borderAnimationFrame);
+            borderAnimationFrame = null;
+        }
+        overlayCanvas.getContext("2d").clearRect(
+            0,
+            0,
+            overlayCanvas.width,
+            overlayCanvas.height
+        );
+    }
+
+    function drawDetectedLines(points, colorIndex = 0) {
+        clearOverlay();
+        const context = overlayCanvas.getContext("2d");
+        const scaleX = overlayCanvas.width / sourceCanvas.width;
+        const scaleY = overlayCanvas.height / sourceCanvas.height;
+
+        context.save();
+        context.scale(scaleX, scaleY);
+        context.beginPath();
+        context.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+            context.lineTo(points[i].x, points[i].y);
+        }
+        context.closePath();
+        context.strokeStyle = borderColors[colorIndex % borderColors.length];
+        context.lineWidth = 5;
+        context.shadowColor = "rgba(0, 0, 0, 0.75)";
+        context.shadowBlur = 3;
+        context.stroke();
+        context.restore();
+    }
+
+    function drawDetectedCandidates(candidates) {
+        if (borderAnimationFrame) {
+            cancelAnimationFrame(borderAnimationFrame);
+        }
+
+        function animate(timestamp) {
+            const context = overlayCanvas.getContext("2d");
+            const scaleX = overlayCanvas.width / sourceCanvas.width;
+            const scaleY = overlayCanvas.height / sourceCanvas.height;
+            context.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            context.save();
+            context.scale(scaleX, scaleY);
+
+            candidates.forEach((points, index) => {
+                const selected = index === selectedCandidateIndex;
+                const pulse = 0.55 + 0.45 * (
+                    0.5 + 0.5 * Math.sin(timestamp / 220 + index * 1.7)
+                );
+                context.save();
+                context.beginPath();
+                context.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    context.lineTo(points[i].x, points[i].y);
+                }
+                context.closePath();
+                context.globalAlpha = selected ? 1 : pulse;
+                context.strokeStyle = borderColors[index % borderColors.length];
+                context.lineWidth = selected ? 6 : 4;
+                context.shadowColor = borderColors[index % borderColors.length];
+                context.shadowBlur = selected ? 8 : 5;
+                context.stroke();
+                context.restore();
+            });
+
+            context.restore();
+            borderAnimationFrame = requestAnimationFrame(animate);
+        }
+
+        borderAnimationFrame = requestAnimationFrame(animate);
+    }
+
+    function clearPreview() {
+        previewOptions.replaceChildren();
+    }
+
+    function createDetectionWorker() {
+        const workerSource = `
+            importScripts("https://docs.opencv.org/4.10.0/opencv.js");
+
+            let cvReady = false;
+            self.cv = self.cv || {};
+
+            function distance(a, b) {
+                return Math.hypot(a.x - b.x, a.y - b.y);
+            }
+
+            function orderQuad(points) {
+                const verticalOrder = points.slice().sort((a, b) => a.y - b.y);
+                const top = verticalOrder.slice(0, 2).sort((a, b) => a.x - b.x);
+                const bottom = verticalOrder.slice(2).sort((a, b) => a.x - b.x);
+                return [top[0], top[1], bottom[1], bottom[0]];
+            }
+
+            function quadAspectRatio(points) {
+                const top = distance(points[0], points[1]);
+                const right = distance(points[1], points[2]);
+                const bottom = distance(points[2], points[3]);
+                const left = distance(points[3], points[0]);
+                return ((top + bottom) / 2) / ((left + right) / 2);
+            }
+
+            function expandQuad(points, factor) {
+                const center = points.reduce((value, point) => ({
+                    x: value.x + point.x / points.length,
+                    y: value.y + point.y / points.length
+                }), { x: 0, y: 0 });
+                return points.map((point) => ({
+                    x: center.x + (point.x - center.x) * factor,
+                    y: center.y + (point.y - center.y) * factor
+                }));
+            }
+
+            function quadsNear(points, centerQuad) {
+                const center = centerQuad.reduce((value, point) => ({
+                    x: value.x + point.x / centerQuad.length,
+                    y: value.y + point.y / centerQuad.length
+                }), { x: 0, y: 0 });
+                return points.every((point) =>
+                    Math.abs(point.x - center.x) <=
+                        distance(centerQuad[0], centerQuad[1]) * 0.18 &&
+                    Math.abs(point.y - center.y) <=
+                        distance(centerQuad[0], centerQuad[3]) * 0.18
+                );
+            }
+
+            self.onmessage = async function (event) {
+                if (!cvReady) {
+                    await new Promise((resolve, reject) => {
+                        if (self.cv.Mat) {
+                            cvReady = true;
+                            resolve();
+                            return;
+                        }
+                        self.cv.onRuntimeInitialized = function () {
+                            cvReady = true;
+                            resolve();
+                        };
+                        setTimeout(function () {
+                            if (!cvReady) reject(new Error("OpenCV did not initialize"));
+                        }, 15000);
+                    });
+                }
+
+                try {
+                    const cv = self.cv;
+                    const input = event.data;
+                    const mat = cv.matFromImageData(input.imageData);
+
+                    if (input.action === "crop") {
+                        const points = input.quad;
+                        const inset = 1;
+                        const left = Math.max(
+                            0,
+                            Math.ceil(Math.min(...points.map((point) => point.x))) + inset
+                        );
+                        const top = Math.max(
+                            0,
+                            Math.ceil(Math.min(...points.map((point) => point.y))) + inset
+                        );
+                        const right = Math.min(
+                            mat.cols,
+                            Math.floor(Math.max(...points.map((point) => point.x))) - inset
+                        );
+                        const bottom = Math.min(
+                            mat.rows,
+                            Math.floor(Math.max(...points.map((point) => point.y))) - inset
+                        );
+                        const cropRect = new cv.Rect(
+                            left,
+                            top,
+                            Math.max(1, right - left),
+                            Math.max(1, bottom - top)
+                        );
+                        const sourcePixels = mat.data;
+                        const sourceChannels = 4;
+                        const pixels = new Uint8ClampedArray(
+                            cropRect.width * cropRect.height * sourceChannels
+                        );
+
+                        for (let y = 0; y < cropRect.height; y++) {
+                            const sourceRow =
+                                (cropRect.y + y) * mat.cols * sourceChannels;
+                            const targetRow =
+                                y * cropRect.width * sourceChannels;
+                            const rowLength =
+                                cropRect.width * sourceChannels;
+                            pixels.set(
+                                sourcePixels.subarray(
+                                    sourceRow + cropRect.x * sourceChannels,
+                                    sourceRow + (cropRect.x + cropRect.width) * sourceChannels
+                                ),
+                                targetRow
+                            );
+                        }
+
+                        const transferBuffer = pixels.buffer;
+
+                        mat.delete();
+
+                        self.postMessage({
+                            type: "cropped",
+                            width: cropRect.width,
+                            height: cropRect.height,
+                            pixels: transferBuffer
+                        }, [transferBuffer]);
+                        return;
+                    }
+
+                    const resized = new cv.Mat();
+                    const scale = Math.min(1, 640 / Math.max(mat.cols, mat.rows));
+
+                    cv.resize(
+                        mat,
+                        resized,
+                        new cv.Size(
+                            Math.round(mat.cols * scale),
+                            Math.round(mat.rows * scale)
+                        ),
+                        0,
+                        0,
+                        cv.INTER_AREA
+                    );
+
+                    const gray = new cv.Mat();
+                    const blurred = new cv.Mat();
+                    const edges = new cv.Mat();
+                    const edgesWide = new cv.Mat();
+                    const contours = new cv.MatVector();
+                    const hierarchy = new cv.Mat();
+                    cv.cvtColor(resized, gray, cv.COLOR_RGBA2GRAY);
+                    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+                    cv.Canny(blurred, edges, 30, 90);
+                    cv.Canny(blurred, edgesWide, 70, 180);
+                    cv.bitwise_or(edges, edgesWide, edges);
+
+                    const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+                    cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernel);
+                    cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+                    let bestQuad = null;
+                    let bestArea = 0;
+                    const nearbyQuads = [];
+                    const allQuads = [];
+                    const targetAspect = 63.5 / 88.9;
+
+                    for (let i = 0; i < contours.size(); i++) {
+                        const contour = contours.get(i);
+                        const area = cv.contourArea(contour);
+                        if (area < 2500) {
+                            contour.delete();
+                            continue;
+                        }
+
+                        const perimeter = cv.arcLength(contour, true);
+                        const approximation = new cv.Mat();
+                        cv.approxPolyDP(contour, approximation, 0.02 * perimeter, true);
+
+                        if (approximation.rows === 4 && cv.isContourConvex(approximation)) {
+                            const points = [];
+                            for (let j = 0; j < 4; j++) {
+                                const point = approximation.intPtr(j, 0);
+                                points.push({
+                                    x: point[0] / scale,
+                                    y: point[1] / scale
+                                });
+                            }
+
+                            const quad = orderQuad(points);
+                            const ratio = quadAspectRatio(quad);
+                            const ratioError = Math.abs(ratio - targetAspect) / targetAspect;
+
+                            if (ratioError <= 0.18 && area > bestArea) {
+                                bestQuad = quad;
+                                bestArea = area;
+                            }
+
+                            if (ratioError <= 0.12) {
+                                nearbyQuads.push({ quad: quad, area: area });
+                            }
+                            allQuads.push({ quad: quad, area: area });
+                        }
+
+                        approximation.delete();
+                        contour.delete();
+                    }
+
+                    const candidates = bestQuad ? [bestQuad] : [];
+                    const candidateKeys = new Set();
+
+                    function addCandidate(quad) {
+                        if (!quad || candidates.length >= 3) return;
+                        const validAgainstExisting = candidates.every((candidate) => {
+                            if (!candidate) return false;
+
+                            const horizontalGap = mat.cols * 0.02;
+                            const verticalGap = mat.rows * 0.02;
+                            const sideOffsets = [
+                                Math.abs(quad[0].y - candidate[0].y),
+                                Math.abs(quad[1].x - candidate[1].x),
+                                Math.abs(quad[2].y - candidate[2].y),
+                                Math.abs(quad[3].x - candidate[3].x)
+                            ];
+                            const overlaps = [
+                                sideOffsets[0] < horizontalGap,
+                                sideOffsets[1] < verticalGap,
+                                sideOffsets[2] < horizontalGap,
+                                sideOffsets[3] < verticalGap
+                            ];
+                            const nonOverlappingSides =
+                                overlaps.filter((overlapsSide) => !overlapsSide).length;
+
+                            return nonOverlappingSides >= 2;
+                        });
+                        if (!validAgainstExisting) return;
+                        const key = quad.map((point) =>
+                            \`\${Math.round(point.x / 8)}:\${Math.round(point.y / 8)}\`
+                        ).join("|");
+                        if (candidateKeys.has(key)) return;
+                        candidateKeys.add(key);
+                        candidates.push(quad);
+                    }
+
+                    if (bestQuad) {
+                        candidateKeys.add(bestQuad.map((point) =>
+                            \`\${Math.round(point.x / 8)}:\${Math.round(point.y / 8)}\`
+                        ).join("|"));
+
+                        const centerX = mat.cols / 2;
+                        const centerY = mat.rows / 2;
+                        const centerOutward = allQuads
+                            .filter((item) => item.quad)
+                            .sort((a, b) => {
+                                const aCenter = a.quad.reduce((sum, point) =>
+                                    sum + distance(point, { x: centerX, y: centerY }),
+                                    0
+                                ) / 4;
+                                const bCenter = b.quad.reduce((sum, point) =>
+                                    sum + distance(point, { x: centerX, y: centerY }),
+                                    0
+                                ) / 4;
+                                return aCenter - bCenter || a.area - b.area;
+                            });
+                        const randomSeed = {
+                            x: Math.round(mat.cols * (0.2 + Math.random() * 0.6)),
+                            y: Math.round(mat.rows * (0.2 + Math.random() * 0.6))
+                        };
+                        const randomStart = allQuads
+                            .filter((item) => item.quad)
+                            .sort((a, b) => {
+                                const aCenter = a.quad.reduce((sum, point) =>
+                                    sum + distance(point, randomSeed),
+                                    0
+                                ) / 4;
+                                const bCenter = b.quad.reduce((sum, point) =>
+                                    sum + distance(point, randomSeed),
+                                    0
+                                ) / 4;
+                                return aCenter - bCenter;
+                            })[0];
+
+                        if (centerOutward[0]) {
+                            addCandidate(centerOutward[0].quad);
+                        }
+                        if (randomStart) {
+                            addCandidate(randomStart.quad);
+                        }
+
+                        nearbyQuads
+                            .filter((item) =>
+                                item.area > bestArea * 1.005 &&
+                                item.area < bestArea * 1.25
+                            )
+                            .sort((a, b) => a.area - b.area)
+                            .forEach((item) => addCandidate(item.quad));
+
+                        [1.03, 1.06, 1.09].forEach((factor) => {
+                            addCandidate(expandQuad(bestQuad, factor));
+                        });
+                    }
+
+                    mat.delete();
+                    resized.delete();
+                    gray.delete();
+                    blurred.delete();
+                    edges.delete();
+                    edgesWide.delete();
+                    contours.delete();
+                    hierarchy.delete();
+                    kernel.delete();
+
+                    self.postMessage({
+                        quad: bestQuad,
+                        candidates: candidates
+                    });
+                } catch (error) {
+                    self.postMessage({
+                        type: "crop-error",
+                        error: error.message
+                    });
+                }
+            };
+        `;
+
+        const workerUrl = URL.createObjectURL(
+            new Blob([workerSource], { type: "application/javascript" })
+        );
+        detectionWorker = new Worker(workerUrl);
+        URL.revokeObjectURL(workerUrl);
+        return detectionWorker;
+    }
+
+    function selectCandidate(index) {
+        selectedCandidateIndex = index;
+        const options = previewOptions.querySelectorAll(".crop-option");
+        options.forEach((option, optionIndex) => {
+            option.classList.toggle("selected", optionIndex === index);
+            option.querySelector("input").checked = optionIndex === index;
+        });
+        drawDetectedCandidates(detectedCandidates);
+    }
+
+    function renderCandidatePreviews(candidates) {
+        detectedCandidates = candidates;
+        selectedCandidateIndex = 0;
+        previewOptions.replaceChildren();
+
+        candidates.forEach((quad, index) => {
+            const option = document.createElement("div");
+            option.className = "crop-option";
+            if (index === 0) {
+                option.classList.add("selected");
+            }
+
+            const canvas = document.createElement("canvas");
+            canvas.width = 500;
+            canvas.height = 700;
+            canvas.className = "crop-preview-canvas";
+
+            const label = document.createElement("label");
+            label.className = "crop-option-label";
+            const radio = document.createElement("input");
+            radio.type = "radio";
+            radio.name = "cropOption";
+            radio.checked = index === 0;
+            const colorBall = document.createElement("span");
+            colorBall.className = "border-color-ball";
+            colorBall.style.backgroundColor =
+                borderColors[index % borderColors.length];
+            colorBall.style.color =
+                borderColors[index % borderColors.length];
+            label.append(
+                radio,
+                colorBall,
+                document.createTextNode(`Crop ${index + 1}`)
+            );
+
+            option.append(canvas, label);
+            option.addEventListener("click", function () {
+                selectCandidate(index);
+            });
+            previewOptions.appendChild(option);
+
+            const worker = createDetectionWorker();
+            worker.onmessage = function (event) {
+                if (event.data.type !== "cropped") {
+                    return;
+                }
+                canvas.width = event.data.width;
+                canvas.height = event.data.height;
+                const pixels = new Uint8ClampedArray(event.data.pixels);
+                if (pixels.length === canvas.width * canvas.height * 4) {
+                    canvas
+                        .getContext("2d")
+                        .putImageData(
+                            new ImageData(pixels, canvas.width, canvas.height),
+                            0,
+                            0
+                        );
+                }
+            };
+
+            const context = sourceCanvas.getContext("2d");
+            const imageData = context.getImageData(
+                0,
+                0,
+                sourceCanvas.width,
+                sourceCanvas.height
+            );
+            worker.postMessage(
+                { action: "crop", imageData: imageData, quad: quad },
+                [imageData.data.buffer]
+            );
+        });
+    }
+
+    function detectCard() {
+        if (!sourceImage) {
+            return;
+        }
+
+        detectedQuad = null;
+        detectedCandidates = [];
+        selectedCandidateIndex = 0;
+        croppedBlob = null;
+        detectedActions.classList.add("hidden");
+        croppedActions.classList.add("hidden");
+        clearOverlay();
+        clearPreview();
+        showStatus("Scanning the image for a card border...", "info");
+
+        const worker = createDetectionWorker();
+        worker.onmessage = function (event) {
+            if (!event.data.quad) {
+                clearOverlay();
+                showStatus("Card not found", "warning");
+                return;
+            }
+
+            detectedQuad = event.data.quad;
+            renderCandidatePreviews(
+                event.data.candidates && event.data.candidates.length
+                    ? event.data.candidates
+                    : [event.data.quad]
+            );
+            drawDetectedCandidates(detectedCandidates);
+            showStatus("Card border found. Select a crop and confirm.", "success");
+            detectedActions.classList.remove("hidden");
+        };
+        worker.onerror = function (event) {
+            console.error(event);
+            clearOverlay();
+            showStatus("Card not found", "warning");
+        };
+
+        const context = sourceCanvas.getContext("2d");
+        const imageData = context.getImageData(
+            0,
+            0,
+            sourceCanvas.width,
+            sourceCanvas.height
+        );
+        worker.postMessage(
+            { action: "detect", imageData: imageData },
+            [imageData.data.buffer]
+        );
+    }
+
+    function confirmCrop() {
+        if (!detectedQuad) {
+            return;
+        }
+
+        try {
+            confirmButton.disabled = true;
+            showStatus("Preparing the cropped preview...", "info");
+            const worker = createDetectionWorker();
+            worker.onmessage = function (event) {
+                if (event.data.type === "crop-error") {
+                    confirmButton.disabled = false;
+                    showStatus("Unable to crop the detected card.", "danger");
+                    return;
+                }
+
+                if (event.data.type !== "cropped") {
+                    confirmButton.disabled = false;
+                    showStatus("Unable to crop the detected card.", "danger");
+                    return;
+                }
+
+                const selectedCanvas = previewOptions.querySelectorAll(
+                    ".crop-preview-canvas"
+                )[selectedCandidateIndex];
+                selectedCanvas.width = event.data.width;
+                selectedCanvas.height = event.data.height;
+                const pixels = new Uint8ClampedArray(event.data.pixels);
+                const expectedLength = selectedCanvas.width * selectedCanvas.height * 4;
+                if (pixels.length !== expectedLength) {
+                    confirmButton.disabled = false;
+                    showStatus("Unable to crop the detected card.", "danger");
+                    return;
+                }
+                selectedCanvas
+                    .getContext("2d")
+                    .putImageData(
+                        new ImageData(pixels, event.data.width, event.data.height),
+                        0,
+                        0
+                    );
+                clearOverlay();
+
+                selectedCanvas.toBlob(function (blob) {
+                    croppedBlob = blob;
+                    confirmButton.disabled = false;
+                    detectedActions.classList.add("hidden");
+                    croppedActions.classList.remove("hidden");
+                    showStatus("Crop ready.", "success");
+                }, "image/jpeg", 0.92);
+            };
+            worker.onerror = function (event) {
+                console.error(event);
+                confirmButton.disabled = false;
+                showStatus("Unable to crop the detected card.", "danger");
+            };
+
+            const context = sourceCanvas.getContext("2d");
+            const imageData = context.getImageData(
+                0,
+                0,
+                sourceCanvas.width,
+                sourceCanvas.height
+            );
+            worker.postMessage(
+                {
+                    action: "crop",
+                    imageData: imageData,
+                    quad: detectedCandidates[selectedCandidateIndex] || detectedQuad
+                },
+                [imageData.data.buffer]
+            );
+        } catch (error) {
+            console.error(error);
+            confirmButton.disabled = false;
+            showStatus("Unable to crop the detected card.", "danger");
+        }
+    }
+
+    fileInput.addEventListener("change", function () {
+        const file = fileInput.files[0];
+        if (!file) {
+            return;
+        }
+
+        sourceImage = new Image();
+        sourceImage.onload = function () {
+            const scale = Math.min(
+                1,
+                900 / Math.max(sourceImage.naturalWidth, sourceImage.naturalHeight)
+            );
+            sourceCanvas.width = Math.round(sourceImage.naturalWidth * scale);
+            sourceCanvas.height = Math.round(sourceImage.naturalHeight * scale);
+            overlayCanvas.width = sourceCanvas.width;
+            overlayCanvas.height = sourceCanvas.height;
+
+            const context = sourceCanvas.getContext("2d");
+            context.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+            context.drawImage(sourceImage, 0, 0, sourceCanvas.width, sourceCanvas.height);
+
+            stage.classList.remove("hidden");
+            detectCard();
+        };
+        sourceImage.src = URL.createObjectURL(file);
+    });
+
+    confirmButton.addEventListener("click", confirmCrop);
+    scanAgainButton.addEventListener("click", detectCard);
+
+    downloadButton.addEventListener("click", function () {
+        if (!croppedBlob) {
+            return;
+        }
+
+        const url = URL.createObjectURL(croppedBlob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "cropped-pokemon-card.jpg";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    });
+
+    saveButton.addEventListener("click", function () {
+        if (!croppedBlob) {
+            return;
+        }
+
+        showStatus(
+            "The cropped image is ready. Database save will be connected in the backend step.",
+            "info"
+        );
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,47 @@
+<!-- app/templates/login.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login / Register</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 400px; margin: 50px auto; padding: 20px; }
+        .form-group { margin: 15px 0; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .error { color: red; margin: 10px 0; }
+        .link { margin-top: 15px; }
+    </style>
+</head>
+<body>
+    {% if is_register %}
+        <h1>Register</h1>
+    {% else %}
+        <h1>Login</h1>
+    {% endif %}
+    
+    {% if error %}
+        <div class="error">{{ error }}</div>
+    {% endif %}
+    
+    <form method="post" action="{% if is_register %}/register{% else %}/login{% endif %}">
+        <div class="form-group">
+            <label>Username:</label>
+            <input type="text" name="username" required>
+        </div>
+        <div class="form-group">
+            <label>Password:</label>
+            <input type="password" name="password" required>
+        </div>
+        <button type="submit">{% if is_register %}Register{% else %}Login{% endif %}</button>
+    </form>
+    
+    <div class="link">
+        {% if is_register %}
+            <a href="/login">Already have an account? Login</a>
+        {% else %}
+            <a href="/register">Don't have an account? Register</a>
+        {% endif %}
+    </div>
+</body>
+</html>

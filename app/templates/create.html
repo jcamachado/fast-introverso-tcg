@@ -1,0 +1,123 @@
+<!-- app/templates/create.html -->
+<!-- <!DOCTYPE html>
+<html>
+<head>
+    <title>Add Card</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .form-group { margin: 15px 0; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-back { background: #6c757d; margin-left: 10px; text-decoration: none; padding: 10px 20px; color: white; border-radius: 5px; }
+    </style>
+</head>
+<body> -->
+{% extends "base.html" %}
+
+{% block title %}Add Card{% endblock %}
+
+{% block content %}
+    <h1>Add New Card</h1>
+<div class="surface p-4">
+    <h1 class="mb-4">Add New Card</h1>
+
+    <form method="post" enctype="multipart/form-data">
+        <div class="mb-3">
+            <label class="form-label">Name</label>
+            <input
+                type="text"
+                name="name"
+                class="form-control"
+                required
+            >
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Variant</label>
+            <input
+                type="text"
+                name="variant"
+                class="form-control"
+            >
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Collection Name</label>
+            <input
+                type="text"
+                name="collection_name"
+                class="form-control"
+            >
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Number</label>
+            <input
+                type="text"
+                name="number"
+                class="form-control"
+            >
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Collection Number</label>
+            <input
+                type="text"
+                name="collection_number"
+                class="form-control"
+            >
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Quantity</label>
+            <input
+                type="number"
+                name="quantity"
+                class="form-control"
+                value="1"
+                min="1"
+            >
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Value</label>
+            <input
+                type="number"
+                name="value"
+                class="form-control"
+                step="0.01"
+                value="0"
+            >
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Extra Data JSON</label>
+            <textarea
+                name="extra_data"
+                class="form-control"
+                rows="3"
+            ></textarea>
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label">Picture</label>
+            <input
+                type="file"
+                name="picture"
+                class="form-control"
+                accept="image/*"
+            >
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-1"></i>
+            Create Card
+        </button>
+
+        <a href="/cards" class="btn btn-outline-secondary">
+            Cancel
+        </a>
+    </form>
+</div>
+{% endblock %}
