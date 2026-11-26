@@ -130,6 +130,27 @@
         width: 92px;
     }
 
+    .guided-preview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 12px;
+    }
+
+    .guided-preview {
+        min-width: 0;
+        padding: 8px;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+    }
+
+    .guided-preview canvas {
+        display: block;
+        width: 100%;
+        max-height: 220px;
+        object-fit: contain;
+        background: #e9ecef;
+    }
+
     #sourceCanvas,
     #overlayCanvas {
         display: block;
@@ -256,6 +277,10 @@
 <div id="batchToolbar" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 hidden">
     <span id="batchSummary" class="text-muted" role="status" aria-live="polite"></span>
     <div class="d-flex gap-2">
+        <button id="downloadGridButton" class="btn btn-outline-success" type="button" disabled>
+            <i class="bi bi-grid-3x3"></i>
+            Download grid
+        </button>
         <button id="downloadSelectedButton" class="btn btn-outline-primary" type="button" disabled>
             <i class="bi bi-download"></i>
             Download selected
@@ -320,6 +345,9 @@
             <i class="bi bi-check-circle"></i>
             Confirm crop
         </button>
+        <button id="guidedDetectionButton" class="btn btn-outline-info" type="button">
+            Guided detection
+        </button>
         <button id="adjustCornersButton" class="btn btn-outline-primary" type="button">
             Manual adjustment
         </button>
@@ -328,6 +356,110 @@
             Scan again
         </button>
     </div>
+
+    <section id="guidedDetectionPanel" class="card mb-4 hidden" aria-labelledby="guidedDetectionTitle">
+        <div class="card-body">
+            <h5 id="guidedDetectionTitle">Guided low-contrast detection</h5>
+            <ol class="small ps-3">
+                <li>
+                    Image loaded:
+                    <span id="guidedImageInfo"></span>
+                </li>
+                <li>Describe the border shape, direction, and lighting.</li>
+                <li>Preview local contrast enhancement, then choose a detection path.</li>
+                <li>Review the binary mask and detected outline; give feedback to refine it.</li>
+            </ol>
+
+            <div class="row g-2 mb-3">
+                <div class="col-sm-4">
+                    <label for="guidedBorderType" class="form-label">Border type</label>
+                    <select id="guidedBorderType" class="form-select form-select-sm">
+                        <option value="straight" selected>Straight / rectangular</option>
+                        <option value="curved">Curved / irregular</option>
+                    </select>
+                </div>
+                <div class="col-sm-4">
+                    <label for="guidedDirection" class="form-label">Main direction</label>
+                    <select id="guidedDirection" class="form-select form-select-sm">
+                        <option value="any" selected>Any direction</option>
+                        <option value="horizontal">Mostly horizontal</option>
+                        <option value="vertical">Mostly vertical</option>
+                    </select>
+                </div>
+                <div class="col-sm-4">
+                    <label for="guidedLighting" class="form-label">Lighting</label>
+                    <select id="guidedLighting" class="form-select form-select-sm">
+                        <option value="even">Even</option>
+                        <option value="uneven" selected>Uneven / shadows</option>
+                    </select>
+                </div>
+                <div class="col-sm-6">
+                    <label for="guidedClipLimit" class="form-label">
+                        CLAHE clip limit:
+                        <output id="guidedClipLimitValue">2.0</output>
+                    </label>
+                    <input id="guidedClipLimit" class="form-range" type="range" min="2" max="4" step="0.5" value="2">
+                </div>
+                <div class="col-sm-3">
+                    <label for="guidedBlockSize" class="form-label">Adaptive block size</label>
+                    <select id="guidedBlockSize" class="form-select form-select-sm">
+                        <option value="11" selected>11</option>
+                        <option value="15">15</option>
+                        <option value="21">21</option>
+                        <option value="31">31</option>
+                    </select>
+                </div>
+                <div class="col-sm-3">
+                    <label for="guidedThresholdC" class="form-label">Threshold C</label>
+                    <input id="guidedThresholdC" class="form-control form-control-sm" type="number" min="-4" max="8" step="1" value="2">
+                </div>
+                <div class="col-sm-6">
+                    <label for="guidedMorphologySize" class="form-label">Morphology close kernel</label>
+                    <select id="guidedMorphologySize" class="form-select form-select-sm">
+                        <option value="3" selected>3 x 3</option>
+                        <option value="5">5 x 5</option>
+                        <option value="7">7 x 7</option>
+                        <option value="9">9 x 9</option>
+                        <option value="15">15 x 15</option>
+                    </select>
+                </div>
+                <div class="col-sm-6 d-flex align-items-end">
+                    <p id="guidedPathSummary" class="small text-muted mb-2"></p>
+                </div>
+            </div>
+
+            <div class="guided-preview-grid mb-3">
+                <div class="guided-preview">
+                    <span class="small fw-semibold">Grayscale</span>
+                    <canvas id="guidedGrayPreview"></canvas>
+                </div>
+                <div class="guided-preview">
+                    <span class="small fw-semibold">CLAHE contrast preview</span>
+                    <canvas id="guidedClahePreview"></canvas>
+                </div>
+                <div class="guided-preview">
+                    <span class="small fw-semibold">Binary edge mask</span>
+                    <canvas id="guidedMaskPreview"></canvas>
+                </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                <button id="runGuidedDetectionButton" class="btn btn-primary btn-sm" type="button">
+                    Preview and detect border
+                </button>
+                <span id="guidedDetectionStatus" class="small align-self-center" role="status" aria-live="polite"></span>
+            </div>
+            <div id="guidedFeedback" class="hidden mb-3">
+                <p class="small mb-2">Did we catch the border? Select a result to refine the settings.</p>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-feedback="missing">Missing border parts</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-feedback="noise">Too much noise</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-feedback="broken">Border is broken</button>
+                </div>
+            </div>
+            <div id="guidedCoordinates" class="small text-break" role="status" aria-live="polite"></div>
+        </div>
+    </section>
 
     <div class="crop-layout">
         <div>
@@ -386,6 +518,7 @@
     const batchToolbar = document.getElementById("batchToolbar");
     const batchSummary = document.getElementById("batchSummary");
     const batchStatus = document.getElementById("batchStatus");
+    const downloadGridButton = document.getElementById("downloadGridButton");
     const downloadSelectedButton = document.getElementById("downloadSelectedButton");
     const saveSelectedButton = document.getElementById("saveSelectedButton");
     const editorPanel = document.getElementById("editorPanel");
@@ -401,8 +534,36 @@
     const status = document.getElementById("status");
     const detectedActions = document.getElementById("detectedActions");
     const confirmButton = document.getElementById("confirmButton");
+    const guidedDetectionButton = document.getElementById("guidedDetectionButton");
+    const guidedDetectionPanel = document.getElementById("guidedDetectionPanel");
+    const guidedImageInfo = document.getElementById("guidedImageInfo");
+    const guidedBorderType = document.getElementById("guidedBorderType");
+    const guidedDirection = document.getElementById("guidedDirection");
+    const guidedLighting = document.getElementById("guidedLighting");
+    const guidedClipLimit = document.getElementById("guidedClipLimit");
+    const guidedClipLimitValue = document.getElementById("guidedClipLimitValue");
+    const guidedBlockSize = document.getElementById("guidedBlockSize");
+    const guidedThresholdC = document.getElementById("guidedThresholdC");
+    const guidedMorphologySize = document.getElementById("guidedMorphologySize");
+    const guidedPathSummary = document.getElementById("guidedPathSummary");
+    const guidedGrayPreview = document.getElementById("guidedGrayPreview");
+    const guidedClahePreview = document.getElementById("guidedClahePreview");
+    const guidedMaskPreview = document.getElementById("guidedMaskPreview");
+    const runGuidedDetectionButton = document.getElementById("runGuidedDetectionButton");
+    const guidedDetectionStatus = document.getElementById("guidedDetectionStatus");
+    const guidedFeedback = document.getElementById("guidedFeedback");
+    const guidedCoordinates = document.getElementById("guidedCoordinates");
     const adjustCornersButton = document.getElementById("adjustCornersButton");
     const scanAgainButton = document.getElementById("scanAgainButton");
+    const defaultGuidedSettings = {
+        borderType: "straight",
+        direction: "any",
+        lighting: "uneven",
+        clipLimit: 2,
+        blockSize: 11,
+        thresholdC: 2,
+        morphologySize: 3
+    };
 
     let imageItems = [];
     let activeItem = null;
@@ -420,10 +581,12 @@
     let borderAnimationFrame = null;
     let manualAdjustmentActive = false;
     let manualToolsVisible = false;
+    let guidedDetectionOpen = false;
     let dragState = null;
     const automaticDetectionQueue = [];
     let automaticDetectionRunning = false;
     let automaticDetectionWorker = null;
+    let gridDownloadRunning = false;
     const borderColors = ["#35d07f", "#ff4d4f", "#4d79ff"];
 
     function imageBaseName(item) {
@@ -435,6 +598,154 @@
         batchStatus.className = `alert alert-${type}`;
     }
 
+    function readGuidedSettings() {
+        const clipLimit = Number(guidedClipLimit.value);
+        const blockSize = Number(guidedBlockSize.value);
+        const thresholdC = Number(guidedThresholdC.value);
+        const morphologySize = Number(guidedMorphologySize.value);
+        return {
+            borderType: guidedBorderType.value,
+            direction: guidedDirection.value,
+            lighting: guidedLighting.value,
+            clipLimit: Number.isFinite(clipLimit)
+                ? Math.max(2, Math.min(4, clipLimit))
+                : defaultGuidedSettings.clipLimit,
+            blockSize: [11, 15, 21, 31].includes(blockSize)
+                ? blockSize
+                : defaultGuidedSettings.blockSize,
+            thresholdC: Number.isFinite(thresholdC)
+                ? Math.max(-4, Math.min(8, Math.round(thresholdC)))
+                : defaultGuidedSettings.thresholdC,
+            morphologySize: [3, 5, 7, 9, 15].includes(morphologySize)
+                ? morphologySize
+                : defaultGuidedSettings.morphologySize
+        };
+    }
+
+    function applyGuidedSettings(settings) {
+        const values = { ...defaultGuidedSettings, ...settings };
+        guidedBorderType.value = values.borderType === "curved" ? "curved" : "straight";
+        guidedDirection.value = ["horizontal", "vertical"].includes(values.direction)
+            ? values.direction
+            : "any";
+        guidedLighting.value = values.lighting === "even" ? "even" : "uneven";
+        guidedClipLimit.value = String(Math.max(2, Math.min(4, values.clipLimit)));
+        guidedBlockSize.value = ["11", "15", "21", "31"].includes(String(values.blockSize))
+            ? String(values.blockSize)
+            : "11";
+        guidedThresholdC.value = String(
+            Math.max(-4, Math.min(8, Math.round(Number(values.thresholdC) || 0)))
+        );
+        guidedMorphologySize.value = ["3", "5", "7", "9", "15"].includes(
+            String(values.morphologySize)
+        )
+            ? String(values.morphologySize)
+            : "3";
+        guidedClipLimitValue.value = Number(guidedClipLimit.value).toFixed(1);
+        updateGuidedPathSummary();
+    }
+
+    function updateGuidedPathSummary() {
+        const settings = readGuidedSettings();
+        const directionalSobel =
+            settings.borderType === "straight" && settings.direction !== "any";
+        const path = directionalSobel
+            ? `directional Sobel (${settings.direction}) with adaptive threshold`
+            : "adaptive Gaussian threshold";
+        guidedPathSummary.textContent =
+            `Path: CLAHE (clip ${settings.clipLimit.toFixed(1)}, 8x8) -> ${path} -> ` +
+            `morphology close (${settings.morphologySize}x${settings.morphologySize}) -> ` +
+            "card-ratio contour filtering.";
+    }
+
+    function renderGuidedGrayscalePreview() {
+        if (!sourceCanvas.width || !sourceCanvas.height) return;
+        const source = sourceCanvas.getContext("2d").getImageData(
+            0,
+            0,
+            sourceCanvas.width,
+            sourceCanvas.height
+        );
+        const grayscale = new ImageData(source.width, source.height);
+        for (let index = 0; index < source.data.length; index += 4) {
+            const value = Math.round(
+                source.data[index] * 0.299 +
+                source.data[index + 1] * 0.587 +
+                source.data[index + 2] * 0.114
+            );
+            grayscale.data[index] = value;
+            grayscale.data[index + 1] = value;
+            grayscale.data[index + 2] = value;
+            grayscale.data[index + 3] = 255;
+        }
+        guidedGrayPreview.width = source.width;
+        guidedGrayPreview.height = source.height;
+        guidedGrayPreview.getContext("2d").putImageData(grayscale, 0, 0);
+    }
+
+    function drawGuidedPreview(canvas, pixels, width, height) {
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").putImageData(
+            new ImageData(new Uint8ClampedArray(pixels), width, height),
+            0,
+            0
+        );
+    }
+
+    function renderGuidedResult(item) {
+        const result = item.guidedResult;
+        if (!result) {
+            guidedClahePreview.width = 0;
+            guidedClahePreview.height = 0;
+            guidedMaskPreview.width = 0;
+            guidedMaskPreview.height = 0;
+            guidedFeedback.classList.add("hidden");
+            guidedCoordinates.textContent = "";
+            guidedDetectionStatus.textContent = item.guidedMessage || "";
+            return;
+        }
+
+        drawGuidedPreview(
+            guidedClahePreview,
+            result.clahePixels,
+            result.width,
+            result.height
+        );
+        drawGuidedPreview(
+            guidedMaskPreview,
+            result.maskPixels,
+            result.width,
+            result.height
+        );
+        guidedDetectionStatus.textContent = result.message;
+        guidedFeedback.classList.remove("hidden");
+        guidedCoordinates.textContent = result.quad
+            ? `Detected corners in working-image pixels: ${result.quad
+                .map((point, index) =>
+                    `${["TL", "TR", "BR", "BL"][index]} (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`
+                )
+                .join(" | ")}`
+            : "No card outline was found with these settings.";
+    }
+
+    function restoreGuidedDetectionState(item) {
+        runGuidedDetectionButton.disabled = false;
+        applyGuidedSettings(item.guidedSettings || defaultGuidedSettings);
+        guidedDetectionOpen = !!item.guidedOpen;
+        guidedDetectionPanel.classList.toggle("hidden", !guidedDetectionOpen);
+        guidedDetectionButton.textContent = guidedDetectionOpen
+            ? "Hide guided detection"
+            : "Guided detection";
+        if (guidedDetectionOpen) {
+            guidedImageInfo.textContent =
+                `${sourceImage.naturalWidth} x ${sourceImage.naturalHeight} source pixels; ` +
+                `${sourceCanvas.width} x ${sourceCanvas.height} working pixels`;
+            renderGuidedGrayscalePreview();
+            renderGuidedResult(item);
+        }
+    }
+
     function updateBatchActions() {
         const selected = imageItems.filter((item) => item.selected);
         const cropped = selected.filter((item) => item.croppedBlob);
@@ -443,6 +754,14 @@
         batchToolbar.classList.toggle("hidden", imageItems.length === 0);
         batchSummary.textContent =
             `${selected.length} selected; ${cropped.length} cropped`;
+        downloadGridButton.disabled = selected.length === 0 || gridDownloadRunning;
+        if (gridDownloadRunning) {
+            downloadGridButton.textContent = "Preparing grid...";
+        } else {
+            downloadGridButton.textContent = selected.length
+                ? `Download grid (${selected.length})`
+                : "Download grid";
+        }
         downloadSelectedButton.disabled = cropped.length === 0;
         saveSelectedButton.disabled = saveable.length === 0;
         downloadSelectedButton.textContent = cropped.length
@@ -487,8 +806,17 @@
         );
         elements.statusIcon.className = `bi ${detectionDisplay.icon} ${detectionDisplay.color}`;
         elements.status.textContent = detectionDisplay.message;
-        elements.crop.textContent =
-            item === activeItem && editorOpen ? "Editing" : "Edit crop";
+        elements.crop.textContent = item.cropMode === "manual"
+            ? "Cancel crop"
+            : item === activeItem && editorOpen
+                ? "Editing"
+                : "Edit crop";
+        elements.crop.setAttribute(
+            "aria-label",
+            item.cropMode === "manual"
+                ? `Cancel crop for ${item.file.name}`
+                : `Edit crop for ${item.file.name}`
+        );
         elements.crop.disabled = item.saved;
         elements.download.disabled = !item.croppedBlob;
         elements.save.disabled = !item.croppedBlob || item.saved || item.saving;
@@ -532,6 +860,9 @@
             rotationDegrees: 0,
             detectedQuad: null,
             detectedCandidates: [],
+            autoDetectedQuad: null,
+            autoDetectedCandidates: [],
+            cropMode: null,
             selectedCandidateIndex: 0,
             manualToolsVisible: false,
             manualAdjustmentActive: false,
@@ -542,7 +873,14 @@
             saving: false,
             editorMessage: null,
             editorStatusType: null,
-            manualEdited: false
+            manualEdited: false,
+            guidedSettings: { ...defaultGuidedSettings },
+            guidedOpen: false,
+            guidedResult: null,
+            guidedMessage: "",
+            guidedWorker: null,
+            guidedTimeout: null,
+            guidedRunId: 0
         };
 
         elements.checkbox.addEventListener("change", function () {
@@ -550,7 +888,14 @@
             updateBatchActions();
         });
         elements.crop.addEventListener("click", function () {
+            if (item.cropMode === "manual") {
+                cancelItemCrop(item);
+                return;
+            }
+            item.cropMode = "manual";
+            item.croppedBlob = null;
             activateImageItem(item, true);
+            updateImageItem(item);
         });
         elements.download.addEventListener("click", function () {
             if (item.croppedBlob) {
@@ -594,7 +939,24 @@
                     automaticDetectionWorker = null;
                 }
             }
-            if (quad && !item.manualEdited) {
+            if (quad) {
+                item.autoDetectedQuad = quad.map((point) => ({ ...point }));
+                item.autoDetectedCandidates = candidates.map((candidate) =>
+                    candidate.map((point) => ({ ...point }))
+                );
+                if (!item.autoDetectedCandidates.length) {
+                    item.autoDetectedCandidates = [item.autoDetectedQuad];
+                }
+                if (item.cropMode === null) item.cropMode = "auto";
+            } else if (item.cropMode === null) {
+                item.cropMode = "none";
+            }
+            if (
+                quad &&
+                !item.manualEdited &&
+                item.cropMode !== "manual" &&
+                item.cropMode !== "none"
+            ) {
                 item.detectedQuad = quad.map((point) => ({ ...point }));
                 item.detectedCandidates = candidates.map((candidate) =>
                     candidate.map((point) => ({ ...point }))
@@ -609,7 +971,12 @@
             item.stateText = quad ? "Card outline detected" : "Card outline not detected";
 
             if (activeItem === item && editorOpen) {
-                if (quad && !item.manualEdited) {
+                if (
+                    quad &&
+                    !item.manualEdited &&
+                    item.cropMode !== "manual" &&
+                    item.cropMode !== "none"
+                ) {
                     applyAutomaticDetectionToActiveEditor(item);
                 } else if (!quad) {
                     showStatus(
@@ -698,6 +1065,8 @@
         activeItem.manualToolsVisible = manualToolsVisible;
         activeItem.manualAdjustmentActive = manualAdjustmentActive;
         activeItem.croppedBlob = croppedBlob;
+        activeItem.guidedSettings = readGuidedSettings();
+        activeItem.guidedOpen = guidedDetectionOpen;
         updateImageItem(activeItem);
     }
 
@@ -723,6 +1092,232 @@
             );
         });
         return formData;
+    }
+
+    function loadGridImage(source) {
+        return new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error("Unable to load an image for the grid."));
+            image.src = source;
+        });
+    }
+
+    async function canvasFromBlob(blob) {
+        const url = URL.createObjectURL(blob);
+        try {
+            const image = await loadGridImage(url);
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            canvas.getContext("2d").drawImage(image, 0, 0);
+            return canvas;
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    }
+
+    async function createGridSourceCanvas(
+        item,
+        requestedRotation = item.rotationDegrees || 0
+    ) {
+        if (
+            item === activeItem &&
+            editorOpen &&
+            sourceImage &&
+            sourceCanvas.width &&
+            sourceCanvas.height &&
+            requestedRotation === rotationDegrees
+        ) {
+            return sourceCanvas;
+        }
+
+        const image = await loadGridImage(item.sourceUrl);
+        const scale = Math.min(
+            1,
+            900 / Math.max(image.naturalWidth, image.naturalHeight)
+        );
+        const baseWidth = Math.round(image.naturalWidth * scale);
+        const baseHeight = Math.round(image.naturalHeight * scale);
+        const radians = requestedRotation * Math.PI / 180;
+        const cosine = Math.abs(Math.cos(radians));
+        const sine = Math.abs(Math.sin(radians));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(baseWidth * cosine + baseHeight * sine);
+        canvas.height = Math.ceil(baseWidth * sine + baseHeight * cosine);
+        const context = canvas.getContext("2d");
+        context.translate(canvas.width / 2, canvas.height / 2);
+        context.rotate(radians);
+        context.drawImage(
+            image,
+            -baseWidth / 2,
+            -baseHeight / 2,
+            baseWidth,
+            baseHeight
+        );
+        return canvas;
+    }
+
+    function cropCanvasWithWorker(worker, canvas, quad) {
+        return new Promise((resolve, reject) => {
+            const context = canvas.getContext("2d", { willReadFrequently: true });
+            if (!context) {
+                reject(new Error("Unable to read an image for the grid."));
+                return;
+            }
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const timeout = setTimeout(() => {
+                reject(new Error("Grid cropping timed out. Check your connection and try again."));
+            }, 20000);
+            worker.onmessage = function (event) {
+                clearTimeout(timeout);
+                if (event.data.type === "crop-error") {
+                    reject(new Error(event.data.error || "Unable to crop an image for the grid."));
+                    return;
+                }
+                if (
+                    event.data.type !== "cropped" ||
+                    !event.data.width ||
+                    !event.data.height
+                ) {
+                    reject(new Error("The crop worker returned an invalid grid image."));
+                    return;
+                }
+                const pixels = new Uint8ClampedArray(event.data.pixels);
+                if (pixels.length !== event.data.width * event.data.height * 4) {
+                    reject(new Error("The crop worker returned incomplete image data."));
+                    return;
+                }
+                const croppedCanvas = document.createElement("canvas");
+                croppedCanvas.width = event.data.width;
+                croppedCanvas.height = event.data.height;
+                croppedCanvas
+                    .getContext("2d")
+                    .putImageData(
+                        new ImageData(pixels, event.data.width, event.data.height),
+                        0,
+                        0
+                    );
+                resolve(croppedCanvas);
+            };
+            worker.onerror = function (event) {
+                clearTimeout(timeout);
+                console.error(event);
+                reject(new Error("Grid cropping failed to run."));
+            };
+            try {
+                worker.postMessage(
+                    { action: "crop", imageData: imageData, quad: quad },
+                    [imageData.data.buffer]
+                );
+            } catch (error) {
+                clearTimeout(timeout);
+                reject(error);
+            }
+        });
+    }
+
+    function gridCropMode(item) {
+        return item.cropMode || (item.autoDetectedQuad ? "auto" : "none");
+    }
+
+    async function cropImageForGrid(item, worker) {
+        const cropMode = gridCropMode(item);
+        if (cropMode === "none") {
+            return createGridSourceCanvas(item, 0);
+        }
+        if (item.croppedBlob) {
+            return canvasFromBlob(item.croppedBlob);
+        }
+
+        if (cropMode === "auto") {
+            if (!item.autoDetectedQuad) {
+                return createGridSourceCanvas(item, 0);
+            }
+            const canvas = await createGridSourceCanvas(item, 0);
+            return cropCanvasWithWorker(worker, canvas, item.autoDetectedQuad);
+        }
+
+        const canvas = await createGridSourceCanvas(item);
+        const quad = item === activeItem && editorOpen
+            ? selectedQuad() || detectedQuad
+            : item.detectedCandidates[item.selectedCandidateIndex] || item.detectedQuad;
+        return cropCanvasWithWorker(
+            worker,
+            canvas,
+            quad || createDefaultQuad(canvas.width, canvas.height)
+        );
+    }
+
+    async function downloadSelectedGrid() {
+        if (gridDownloadRunning) return;
+        if (editorOpen) captureActiveItemState();
+        const selected = imageItems.filter((item) => item.selected);
+        if (!selected.length) return;
+
+        gridDownloadRunning = true;
+        updateBatchActions();
+        let worker = null;
+        try {
+            setBatchStatus(`Preparing a grid of ${selected.length} images...`, "info");
+            const crops = [];
+            for (const item of selected) {
+                const cropMode = gridCropMode(item);
+                if (
+                    !item.croppedBlob &&
+                    (cropMode === "manual" ||
+                        (cropMode === "auto" && item.autoDetectedQuad))
+                ) {
+                    worker = worker || createDetectionWorker();
+                }
+                crops.push(await cropImageForGrid(item, worker));
+            }
+
+            const columns = Math.ceil(Math.sqrt(crops.length));
+            const rows = Math.ceil(crops.length / columns);
+            const gap = 8;
+            const cellWidth = Math.max(...crops.map((crop) => crop.width));
+            const cellHeight = Math.max(...crops.map((crop) => crop.height));
+            const grid = document.createElement("canvas");
+            grid.width = columns * cellWidth + (columns + 1) * gap;
+            grid.height = rows * cellHeight + (rows + 1) * gap;
+            const context = grid.getContext("2d");
+            context.fillStyle = "#ffffff";
+            context.fillRect(0, 0, grid.width, grid.height);
+
+            crops.forEach((crop, index) => {
+                const column = index % columns;
+                const row = Math.floor(index / columns);
+                const scale = Math.min(
+                    cellWidth / crop.width,
+                    cellHeight / crop.height
+                );
+                const width = crop.width * scale;
+                const height = crop.height * scale;
+                const x = gap + column * (cellWidth + gap) + (cellWidth - width) / 2;
+                const y = gap + row * (cellHeight + gap) + (cellHeight - height) / 2;
+                context.drawImage(crop, x, y, width, height);
+            });
+
+            const blob = await new Promise((resolve, reject) => {
+                grid.toBlob((result) => {
+                    if (result) resolve(result);
+                    else reject(new Error("Unable to create the image grid."));
+                }, "image/png");
+            });
+            downloadBlob(blob, "cropped-card-grid.png");
+            setBatchStatus(
+                `Downloaded a ${rows} x ${columns} grid of ${selected.length} images.`,
+                "success"
+            );
+        } catch (error) {
+            console.error(error);
+            setBatchStatus(error.message, "danger");
+        } finally {
+            if (worker) worker.terminate();
+            gridDownloadRunning = false;
+            updateBatchActions();
+        }
     }
 
     async function saveCroppedItems(items) {
@@ -859,6 +1454,7 @@
         manualToolsVisible = item.manualToolsVisible;
         manualAdjustmentActive = item.manualAdjustmentActive && !!detectedQuad;
 
+        restoreGuidedDetectionState(item);
         rotationControl.classList.toggle("hidden", !manualToolsVisible);
         cropPreviewPanel.classList.toggle(
             "hidden",
@@ -908,6 +1504,8 @@
             activeItem !== item ||
             !editorOpen ||
             item.manualEdited ||
+            item.cropMode === "manual" ||
+            item.cropMode === "none" ||
             !item.detectedCandidates.length
         ) {
             return;
@@ -981,6 +1579,9 @@
         croppedBlob = null;
         manualAdjustmentActive = false;
         manualToolsVisible = false;
+        guidedDetectionOpen = false;
+        guidedDetectionPanel.classList.add("hidden");
+        guidedDetectionButton.textContent = "Guided detection";
         dragState = null;
 
         item.elements.editorMount.classList.remove("hidden");
@@ -1035,6 +1636,49 @@
         editorPanel.classList.add("hidden");
         activeItem.elements.editorMount.classList.add("hidden");
         updateImageItem(activeItem);
+    }
+
+    function cancelItemCrop(item) {
+        if (item.saved) return;
+
+        item.cropMode = "none";
+        item.croppedBlob = null;
+        item.manualEdited = false;
+        item.rotationDegrees = 0;
+        item.detectedQuad = item.autoDetectedQuad
+            ? item.autoDetectedQuad.map((point) => ({ ...point }))
+            : null;
+        item.detectedCandidates = item.autoDetectedCandidates.map((candidate) =>
+            candidate.map((point) => ({ ...point }))
+        );
+        item.selectedCandidateIndex = 0;
+        item.manualToolsVisible = false;
+        item.manualAdjustmentActive = false;
+        item.stateText = "Crop cancelled";
+        item.editorMessage = "Crop cancelled. Choose Edit crop to start again.";
+        item.editorStatusType = "info";
+
+        if (item === activeItem && editorOpen) {
+            rotationDegrees = 0;
+            rotationInput.value = "0";
+            rotationSlider.value = "0";
+            detectedQuad = item.detectedQuad;
+            detectedCandidates = item.detectedCandidates.map((candidate) =>
+                candidate.map((point) => ({ ...point }))
+            );
+            selectedCandidateIndex = 0;
+            croppedBlob = null;
+            manualToolsVisible = false;
+            manualAdjustmentActive = false;
+            dragState = null;
+            if (sourceImage && sourceImage.complete && sourceImage.naturalWidth) {
+                renderRotatedImage();
+            }
+            closeActiveEditor();
+            return;
+        }
+
+        updateImageItem(item);
     }
 
     function showStatus(message, type) {
@@ -1158,15 +1802,18 @@
         context.restore();
     }
 
-    function createDefaultQuad() {
+    function createDefaultQuad(
+        canvasWidth = sourceCanvas.width,
+        canvasHeight = sourceCanvas.height
+    ) {
         const aspect = 63.5 / 88.9;
         const height = Math.min(
-            sourceCanvas.height * 0.8,
-            sourceCanvas.width * 0.8 / aspect
+            canvasHeight * 0.8,
+            canvasWidth * 0.8 / aspect
         );
         const width = height * aspect;
-        const left = (sourceCanvas.width - width) / 2;
-        const top = (sourceCanvas.height - height) / 2;
+        const left = (canvasWidth - width) / 2;
+        const top = (canvasHeight - height) / 2;
 
         return [
             { x: left, y: top },
@@ -1576,8 +2223,6 @@
                     const blurred = new cv.Mat();
                     const edges = new cv.Mat();
                     const edgesWide = new cv.Mat();
-                    const contours = new cv.MatVector();
-                    const hierarchy = new cv.Mat();
                     cv.cvtColor(resized, gray, cv.COLOR_RGBA2GRAY);
                     cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
                     cv.Canny(blurred, edges, 30, 90);
@@ -1586,54 +2231,247 @@
 
                     const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
                     cv.morphologyEx(edges, edges, cv.MORPH_CLOSE, kernel);
-                    cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
-
-                    let bestQuad = null;
-                    let bestArea = 0;
-                    const nearbyQuads = [];
-                    const allQuads = [];
                     const targetAspect = 63.5 / 88.9;
 
-                    for (let i = 0; i < contours.size(); i++) {
-                        const contour = contours.get(i);
-                        const area = cv.contourArea(contour);
-                        if (area < 2500) {
+                    function findCandidateQuads(edgeMask) {
+                        const contours = new cv.MatVector();
+                        const hierarchy = new cv.Mat();
+                        const contourInput = edgeMask.clone();
+                        cv.findContours(
+                            contourInput,
+                            contours,
+                            hierarchy,
+                            cv.RETR_LIST,
+                            cv.CHAIN_APPROX_SIMPLE
+                        );
+
+                        let bestQuad = null;
+                        let bestArea = 0;
+                        const nearbyQuads = [];
+                        const allQuads = [];
+                        for (let i = 0; i < contours.size(); i++) {
+                            const contour = contours.get(i);
+                            const area = cv.contourArea(contour);
+                            if (area >= 2500) {
+                                const perimeter = cv.arcLength(contour, true);
+                                const approximation = new cv.Mat();
+                                cv.approxPolyDP(
+                                    contour,
+                                    approximation,
+                                    0.02 * perimeter,
+                                    true
+                                );
+
+                                if (
+                                    approximation.rows === 4 &&
+                                    cv.isContourConvex(approximation)
+                                ) {
+                                    const points = [];
+                                    for (let j = 0; j < 4; j++) {
+                                        const point = approximation.intPtr(j, 0);
+                                        points.push({
+                                            x: point[0] / scale,
+                                            y: point[1] / scale
+                                        });
+                                    }
+
+                                    const quad = orderQuad(points);
+                                    const ratio = quadAspectRatio(quad);
+                                    const ratioError =
+                                        Math.abs(ratio - targetAspect) / targetAspect;
+                                    if (ratioError <= 0.18 && area > bestArea) {
+                                        bestQuad = quad;
+                                        bestArea = area;
+                                    }
+                                    if (ratioError <= 0.12) {
+                                        nearbyQuads.push({ quad: quad, area: area });
+                                    }
+                                    allQuads.push({ quad: quad, area: area });
+                                }
+                                approximation.delete();
+                            }
                             contour.delete();
-                            continue;
                         }
 
-                        const perimeter = cv.arcLength(contour, true);
-                        const approximation = new cv.Mat();
-                        cv.approxPolyDP(contour, approximation, 0.02 * perimeter, true);
-
-                        if (approximation.rows === 4 && cv.isContourConvex(approximation)) {
-                            const points = [];
-                            for (let j = 0; j < 4; j++) {
-                                const point = approximation.intPtr(j, 0);
-                                points.push({
-                                    x: point[0] / scale,
-                                    y: point[1] / scale
-                                });
-                            }
-
-                            const quad = orderQuad(points);
-                            const ratio = quadAspectRatio(quad);
-                            const ratioError = Math.abs(ratio - targetAspect) / targetAspect;
-
-                            if (ratioError <= 0.18 && area > bestArea) {
-                                bestQuad = quad;
-                                bestArea = area;
-                            }
-
-                            if (ratioError <= 0.12) {
-                                nearbyQuads.push({ quad: quad, area: area });
-                            }
-                            allQuads.push({ quad: quad, area: area });
-                        }
-
-                        approximation.delete();
-                        contour.delete();
+                        contourInput.delete();
+                        contours.delete();
+                        hierarchy.delete();
+                        return {
+                            bestQuad: bestQuad,
+                            bestArea: bestArea,
+                            nearbyQuads: nearbyQuads,
+                            allQuads: allQuads
+                        };
                     }
+
+                    const baselineResult = findCandidateQuads(edges);
+                    let detectionResult = baselineResult;
+                    let claheGray = null;
+                    let enhancedMask = null;
+                    let clahePixels = null;
+                    let maskPixels = null;
+                    const guided = input.action === "guided-detect";
+                    const settings = input.settings || {};
+                    if (guided || !baselineResult.bestQuad) {
+                        const clipLimit = Math.max(
+                            2,
+                            Math.min(4, Number(settings.clipLimit) || 2)
+                        );
+                        const blockSizeValue = Math.max(
+                            3,
+                            Math.min(31, Number(settings.blockSize) || 11)
+                        );
+                        const blockSize = blockSizeValue % 2
+                            ? blockSizeValue
+                            : blockSizeValue + 1;
+                        const requestedThresholdC = Number(settings.thresholdC);
+                        const thresholdC = Math.max(
+                            -4,
+                            Math.min(
+                                8,
+                                Number.isFinite(requestedThresholdC)
+                                    ? requestedThresholdC
+                                    : 2
+                            )
+                        );
+                        const morphologySizeValue = Math.max(
+                            3,
+                            Math.min(15, Number(settings.morphologySize) || 3)
+                        );
+                        const morphologySize = morphologySizeValue % 2
+                            ? morphologySizeValue
+                            : morphologySizeValue + 1;
+                        const borderType = settings.borderType === "curved"
+                            ? "curved"
+                            : "straight";
+                        const direction = ["horizontal", "vertical"].includes(
+                            settings.direction
+                        )
+                            ? settings.direction
+                            : "any";
+                        const lighting = settings.lighting === "even" ? "even" : "uneven";
+
+                        claheGray = new cv.Mat();
+                        const clahe = cv.createCLAHE(
+                            clipLimit,
+                            new cv.Size(8, 8)
+                        );
+                        clahe.apply(gray, claheGray);
+                        clahe.delete();
+                        const analysisGray = lighting === "uneven" ? claheGray : gray;
+                        const adaptive = new cv.Mat();
+                        cv.adaptiveThreshold(
+                            analysisGray,
+                            adaptive,
+                            255,
+                            cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                            cv.THRESH_BINARY_INV,
+                            blockSize,
+                            thresholdC
+                        );
+
+                        let enhancedEdges = adaptive;
+                        let sobelX = null;
+                        let sobelY = null;
+                        let sobelX16 = null;
+                        let sobelY16 = null;
+                        if (borderType === "straight" && direction !== "any") {
+                            sobelX16 = new cv.Mat();
+                            sobelY16 = new cv.Mat();
+                            sobelX = new cv.Mat();
+                            sobelY = new cv.Mat();
+                            cv.Sobel(
+                                analysisGray,
+                                sobelX16,
+                                cv.CV_16S,
+                                1,
+                                0,
+                                3,
+                                1,
+                                0,
+                                cv.BORDER_DEFAULT
+                            );
+                            cv.Sobel(
+                                analysisGray,
+                                sobelY16,
+                                cv.CV_16S,
+                                0,
+                                1,
+                                3,
+                                1,
+                                0,
+                                cv.BORDER_DEFAULT
+                            );
+                            cv.convertScaleAbs(sobelX16, sobelX);
+                            cv.convertScaleAbs(sobelY16, sobelY);
+                            const directionalSobel = direction === "horizontal"
+                                ? sobelY
+                                : sobelX;
+                            const combined = new cv.Mat();
+                            cv.bitwise_or(adaptive, directionalSobel, combined);
+                            enhancedEdges = combined;
+                        }
+
+                        const combinedEdges = new cv.Mat();
+                        cv.bitwise_or(edges, enhancedEdges, combinedEdges);
+                        if (enhancedEdges !== adaptive) enhancedEdges.delete();
+                        if (sobelX16) sobelX16.delete();
+                        if (sobelY16) sobelY16.delete();
+                        if (sobelX) sobelX.delete();
+                        if (sobelY) sobelY.delete();
+                        adaptive.delete();
+
+                        if (borderType === "straight" && direction !== "any") {
+                            const directionalKernel = direction === "horizontal"
+                                ? cv.getStructuringElement(
+                                    cv.MORPH_RECT,
+                                    new cv.Size(15, 1)
+                                )
+                                : cv.getStructuringElement(
+                                    cv.MORPH_RECT,
+                                    new cv.Size(1, 15)
+                                );
+                            cv.dilate(
+                                combinedEdges,
+                                combinedEdges,
+                                directionalKernel
+                            );
+                            directionalKernel.delete();
+                        }
+                        const closeKernel = cv.getStructuringElement(
+                            cv.MORPH_ELLIPSE,
+                            new cv.Size(morphologySize, morphologySize)
+                        );
+                        enhancedMask = new cv.Mat();
+                        cv.morphologyEx(
+                            combinedEdges,
+                            enhancedMask,
+                            cv.MORPH_CLOSE,
+                            closeKernel
+                        );
+                        closeKernel.delete();
+                        combinedEdges.delete();
+                        const enhancedResult = findCandidateQuads(enhancedMask);
+                        if (enhancedResult.bestQuad || !baselineResult.bestQuad) {
+                            detectionResult = enhancedResult;
+                        }
+
+                        if (guided) {
+                            const claheRgba = new cv.Mat();
+                            const maskRgba = new cv.Mat();
+                            cv.cvtColor(claheGray, claheRgba, cv.COLOR_GRAY2RGBA);
+                            cv.cvtColor(enhancedMask, maskRgba, cv.COLOR_GRAY2RGBA);
+                            clahePixels = new Uint8ClampedArray(claheRgba.data);
+                            maskPixels = new Uint8ClampedArray(maskRgba.data);
+                            claheRgba.delete();
+                            maskRgba.delete();
+                        }
+                    }
+
+                    const bestQuad = detectionResult.bestQuad;
+                    const bestArea = detectionResult.bestArea;
+                    const nearbyQuads = detectionResult.nearbyQuads;
+                    const allQuads = detectionResult.allQuads;
 
                     const candidates = bestQuad ? [bestQuad] : [];
                     const candidateKeys = new Set();
@@ -1729,20 +2567,34 @@
                         });
                     }
 
+                    const previewWidth = resized.cols;
+                    const previewHeight = resized.rows;
                     mat.delete();
                     resized.delete();
                     gray.delete();
                     blurred.delete();
                     edges.delete();
                     edgesWide.delete();
-                    contours.delete();
-                    hierarchy.delete();
                     kernel.delete();
+                    if (claheGray) claheGray.delete();
+                    if (enhancedMask) enhancedMask.delete();
 
-                    self.postMessage({
+                    const response = {
                         quad: bestQuad,
                         candidates: candidates
-                    });
+                    };
+                    if (guided) {
+                        response.previewWidth = previewWidth;
+                        response.previewHeight = previewHeight;
+                        response.clahePixels = clahePixels.buffer;
+                        response.maskPixels = maskPixels.buffer;
+                        self.postMessage(
+                            response,
+                            [response.clahePixels, response.maskPixels]
+                        );
+                    } else {
+                        self.postMessage(response);
+                    }
                 } catch (error) {
                     self.postMessage({
                         type: "crop-error",
@@ -1869,6 +2721,8 @@
         selectedCandidateIndex = 0;
         croppedBlob = null;
         if (activeItem) {
+            activeItem.autoDetectedQuad = null;
+            activeItem.autoDetectedCandidates = [];
             activeItem.processed = false;
             activeItem.croppedBlob = null;
             activeItem.stateText = "Scanning";
@@ -1906,6 +2760,8 @@
             clearTimeout(workerTimeout);
             if (requestId !== detectionRequestId) return;
             if (!event.data.quad) {
+                activeItem.autoDetectedQuad = null;
+                activeItem.autoDetectedCandidates = [];
                 clearOverlay();
                 confirmButton.disabled = true;
                 adjustCornersButton.textContent = "Manual adjustment";
@@ -1919,6 +2775,14 @@
             }
 
             detectedQuad = event.data.quad;
+            activeItem.autoDetectedQuad = event.data.quad.map((point) => ({ ...point }));
+            activeItem.autoDetectedCandidates = (
+                event.data.candidates && event.data.candidates.length
+                    ? event.data.candidates
+                    : [event.data.quad]
+            ).map((candidate) =>
+                candidate.map((point) => ({ ...point }))
+            );
             confirmButton.disabled = false;
             adjustCornersButton.textContent = "Manual adjustment";
             renderCandidatePreviews(
@@ -1930,6 +2794,7 @@
             activeItem.processed = true;
             activeItem.stateText = "Ready to crop";
             activeItem.detectionStatus = "detected";
+            if (activeItem.cropMode === null) activeItem.cropMode = "auto";
             captureActiveItemState();
             showStatus(
                 "Card border found. Confirm the crop or select Manual adjustment for more options.",
@@ -1963,6 +2828,192 @@
             { action: "detect", imageData: imageData },
             [imageData.data.buffer]
         );
+    }
+
+    function runGuidedDetection() {
+        if (!activeItem || !sourceImage) return;
+
+        const item = activeItem;
+        const settings = readGuidedSettings();
+        const runId = ++item.guidedRunId;
+        if (item.guidedWorker) item.guidedWorker.terminate();
+        clearTimeout(item.guidedTimeout);
+        item.guidedSettings = settings;
+        item.guidedOpen = true;
+        item.guidedMessage = "";
+        guidedDetectionPanel.classList.remove("hidden");
+        guidedDetectionOpen = true;
+        guidedFeedback.classList.add("hidden");
+        guidedCoordinates.textContent = "";
+        guidedDetectionStatus.textContent = "Applying contrast enhancement and detecting contours...";
+        runGuidedDetectionButton.disabled = true;
+
+        let worker = null;
+        let timeoutId = null;
+        let completed = false;
+        const finish = function (response, errorMessage = null) {
+            if (completed) return;
+            completed = true;
+            clearTimeout(timeoutId);
+            if (item.guidedTimeout === timeoutId) item.guidedTimeout = null;
+            if (worker) worker.terminate();
+            if (item.guidedWorker === worker) item.guidedWorker = null;
+            if (item.guidedRunId !== runId) return;
+
+            if (
+                errorMessage ||
+                !response ||
+                !response.clahePixels ||
+                !response.maskPixels ||
+                !response.previewWidth ||
+                !response.previewHeight ||
+                response.clahePixels.byteLength !==
+                    response.previewWidth * response.previewHeight * 4 ||
+                response.maskPixels.byteLength !==
+                    response.previewWidth * response.previewHeight * 4
+            ) {
+                const message = errorMessage || "Guided detection did not return its previews.";
+                item.guidedResult = null;
+                item.guidedMessage = message;
+                item.detectionStatus = "not-detected";
+                updateImageItem(item);
+                if (activeItem === item && editorOpen) {
+                    runGuidedDetectionButton.disabled = false;
+                    guidedDetectionStatus.textContent = message;
+                    guidedFeedback.classList.add("hidden");
+                }
+                return;
+            }
+
+            const quad = response.quad || null;
+            const candidates = response.candidates && response.candidates.length
+                ? response.candidates
+                : quad
+                    ? [quad]
+                    : [];
+            item.guidedResult = {
+                width: response.previewWidth,
+                height: response.previewHeight,
+                clahePixels: new Uint8ClampedArray(response.clahePixels),
+                maskPixels: new Uint8ClampedArray(response.maskPixels),
+                quad: quad
+                    ? quad.map((point) => ({ ...point }))
+                    : null,
+                message: quad
+                    ? "The outline was detected. Review the overlay and give feedback if needed."
+                    : "No card outline found. Give feedback to adjust the detection settings."
+            };
+            item.guidedMessage = item.guidedResult.message;
+            item.detectionStatus = quad ? "detected" : "not-detected";
+            item.processed = true;
+            item.stateText = quad ? "Card outline detected" : "Card outline not detected";
+            if (quad) {
+                item.autoDetectedQuad = quad.map((point) => ({ ...point }));
+                item.autoDetectedCandidates = candidates.map((candidate) =>
+                    candidate.map((point) => ({ ...point }))
+                );
+                if (item.cropMode === null) item.cropMode = "auto";
+                item.detectedQuad = quad.map((point) => ({ ...point }));
+                item.detectedCandidates = candidates.map((candidate) =>
+                    candidate.map((point) => ({ ...point }))
+                );
+                item.selectedCandidateIndex = 0;
+                item.manualEdited = false;
+            }
+            updateImageItem(item);
+
+            if (activeItem !== item || !editorOpen) return;
+            runGuidedDetectionButton.disabled = false;
+            renderGuidedResult(item);
+            if (quad) {
+                detectedCandidates = item.detectedCandidates.map((candidate) =>
+                    candidate.map((point) => ({ ...point }))
+                );
+                selectedCandidateIndex = 0;
+                detectedQuad = detectedCandidates[0];
+                renderCandidatePreviews(detectedCandidates);
+                croppedBlob = null;
+                item.croppedBlob = null;
+                detectedActions.classList.remove("hidden");
+                confirmButton.disabled = false;
+                if (manualAdjustmentActive) {
+                    drawManualQuad();
+                } else {
+                    drawDetectedCandidates(detectedCandidates);
+                }
+                showStatus("Guided detection found a card outline.", "success");
+            } else {
+                showStatus(
+                    "No card outline found with these settings. Adjust the image manually or try the feedback options.",
+                    "warning"
+                );
+            }
+            captureActiveItemState();
+        };
+
+        timeoutId = setTimeout(function () {
+            finish(null, "Guided detection timed out. Check your connection and try again.");
+        }, 20000);
+        item.guidedTimeout = timeoutId;
+        try {
+            const context = sourceCanvas.getContext("2d", { willReadFrequently: true });
+            if (!context) {
+                throw new Error("Unable to read the image for guided detection.");
+            }
+            const imageData = context.getImageData(
+                0,
+                0,
+                sourceCanvas.width,
+                sourceCanvas.height
+            );
+            worker = createDetectionWorker();
+            item.guidedWorker = worker;
+            worker.onmessage = function (event) {
+                if (event.data.error) {
+                    console.error(new Error(event.data.error));
+                    finish(null, "OpenCV could not process this image.");
+                    return;
+                }
+                finish(event.data);
+            };
+            worker.onerror = function (event) {
+                console.error(event);
+                finish(null, "Guided detection failed to run.");
+            };
+            worker.postMessage(
+                { action: "guided-detect", imageData: imageData, settings: settings },
+                [imageData.data.buffer]
+            );
+        } catch (error) {
+            console.error(error);
+            finish(null, error.message);
+        }
+    }
+
+    function applyGuidedFeedback(feedback) {
+        if (!activeItem) return;
+        const settings = readGuidedSettings();
+        if (feedback === "missing") {
+            const blockSizes = [11, 15, 21, 31];
+            settings.thresholdC = Math.max(-4, settings.thresholdC - 1);
+            settings.blockSize = blockSizes.find((size) => size > settings.blockSize)
+                || settings.blockSize;
+            settings.clipLimit = Math.min(4, settings.clipLimit + 0.5);
+        } else if (feedback === "noise") {
+            settings.thresholdC = Math.min(8, settings.thresholdC + 1);
+            settings.clipLimit = Math.max(2, settings.clipLimit - 0.5);
+        } else if (feedback === "broken") {
+            const kernelSizes = [3, 5, 7, 9, 15];
+            settings.morphologySize = kernelSizes.find(
+                (size) => size > settings.morphologySize
+            ) || settings.morphologySize;
+        } else {
+            return;
+        }
+
+        applyGuidedSettings(settings);
+        activeItem.guidedSettings = readGuidedSettings();
+        runGuidedDetection();
     }
 
     function updateRotation(value, deferPreviewRefresh = false) {
@@ -2217,6 +3268,49 @@
     });
 
     closeEditorButton.addEventListener("click", closeActiveEditor);
+    guidedDetectionButton.addEventListener("click", function () {
+        if (!activeItem || !sourceImage) return;
+        guidedDetectionOpen = !guidedDetectionOpen;
+        activeItem.guidedSettings = readGuidedSettings();
+        activeItem.guidedOpen = guidedDetectionOpen;
+        guidedDetectionPanel.classList.toggle("hidden", !guidedDetectionOpen);
+        guidedDetectionButton.textContent = guidedDetectionOpen
+            ? "Hide guided detection"
+            : "Guided detection";
+        if (guidedDetectionOpen) {
+            guidedImageInfo.textContent =
+                `${sourceImage.naturalWidth} x ${sourceImage.naturalHeight} source pixels; ` +
+                `${sourceCanvas.width} x ${sourceCanvas.height} working pixels`;
+            renderGuidedGrayscalePreview();
+            renderGuidedResult(activeItem);
+        }
+    });
+    [
+        guidedBorderType,
+        guidedDirection,
+        guidedLighting,
+        guidedClipLimit,
+        guidedBlockSize,
+        guidedThresholdC,
+        guidedMorphologySize
+    ].forEach((control) => {
+        control.addEventListener("input", function () {
+            guidedClipLimitValue.value = Number(guidedClipLimit.value).toFixed(1);
+            updateGuidedPathSummary();
+            if (activeItem) activeItem.guidedSettings = readGuidedSettings();
+        });
+        control.addEventListener("change", function () {
+            guidedClipLimitValue.value = Number(guidedClipLimit.value).toFixed(1);
+            updateGuidedPathSummary();
+            if (activeItem) activeItem.guidedSettings = readGuidedSettings();
+        });
+    });
+    runGuidedDetectionButton.addEventListener("click", runGuidedDetection);
+    guidedFeedback.querySelectorAll("[data-feedback]").forEach((button) => {
+        button.addEventListener("click", function () {
+            applyGuidedFeedback(button.dataset.feedback);
+        });
+    });
     rotationSlider.addEventListener("input", function () {
         updateRotation(rotationSlider.value, true);
     });
@@ -2227,6 +3321,7 @@
     confirmButton.addEventListener("click", confirmCrop);
     adjustCornersButton.addEventListener("click", toggleCornerAdjustment);
     scanAgainButton.addEventListener("click", detectCard);
+    downloadGridButton.addEventListener("click", downloadSelectedGrid);
     downloadSelectedButton.addEventListener("click", downloadSelectedCrops);
     saveSelectedButton.addEventListener("click", function () {
         saveCroppedItems(
