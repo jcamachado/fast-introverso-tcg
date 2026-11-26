@@ -26,10 +26,13 @@ Install the integration with the other application dependencies using
 
 ## Crop adjustment
 
-On the **Crop Card Image** page, use **Adjust corners** to refine the detected
-outline. Drag the corner handles to fit the card, or drag inside the outline to
-move it. If automatic detection misses, **Set corners manually** creates an
-adjustable starting outline. Confirming the crop applies perspective correction.
+On the **Crop Card Image** page, select **Manual adjustment** to reveal crop
+choices and image rotation controls. Rotate the image with the slider or enter
+an angle from -180 to 180 degrees in the box above it. Drag the corner handles
+to fit the card, or drag inside the outline to move it; the crop outline follows
+the image as it rotates. If automatic detection misses, manual adjustment
+creates an adjustable starting outline. Confirming the crop applies perspective
+correction.
 
 testing user
 jaxe

@@ -20,6 +20,25 @@
         overflow: hidden;
     }
 
+    .rotation-control {
+        width: 100%;
+        max-width: 420px;
+    }
+
+    .rotation-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .rotation-label .bi {
+        font-size: 1.15rem;
+    }
+
+    .rotation-number {
+        width: 92px;
+    }
+
     #sourceCanvas,
     #overlayCanvas {
         display: block;
@@ -131,7 +150,7 @@
         Confirm crop
     </button>
     <button id="adjustCornersButton" class="btn btn-outline-primary" type="button">
-        Adjust corners
+        Manual adjustment
     </button>
     <button id="scanAgainButton" class="btn btn-secondary" type="button">
         <i class="bi bi-arrow-counterclockwise"></i>
@@ -157,11 +176,42 @@
             <canvas id="sourceCanvas"></canvas>
             <canvas id="overlayCanvas"></canvas>
         </div>
+        <div id="rotationControl" class="rotation-control mt-3 hidden">
+            <div class="rotation-label mb-2">
+                <label for="rotationInput" class="d-flex align-items-center gap-2 mb-0">
+                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                    <span>Rotate image</span>
+                </label>
+                <div class="input-group input-group-sm rotation-number ms-auto">
+                    <input
+                        id="rotationInput"
+                        class="form-control"
+                        type="number"
+                        min="-180"
+                        max="180"
+                        step="1"
+                        value="0"
+                        aria-label="Rotation angle in degrees"
+                    >
+                    <span class="input-group-text">&deg;</span>
+                </div>
+            </div>
+            <input
+                id="rotationSlider"
+                class="form-range"
+                type="range"
+                min="-180"
+                max="180"
+                step="1"
+                value="0"
+                aria-label="Rotate uploaded image"
+            >
+        </div>
     </div>
 
-    <div>
+    <div id="cropPreviewPanel" class="hidden">
         <h5>Crop Preview</h5>
-        <div id="previewOptions"></div>
+        <div id="previewOptions" class="hidden"></div>
     </div>
 </div>
 {% endblock %}
@@ -171,8 +221,12 @@
 <script>
     const fileInput = document.getElementById("fileInput");
     const stage = document.getElementById("stage");
+    const rotationControl = document.getElementById("rotationControl");
+    const rotationInput = document.getElementById("rotationInput");
+    const rotationSlider = document.getElementById("rotationSlider");
     const sourceCanvas = document.getElementById("sourceCanvas");
     const overlayCanvas = document.getElementById("overlayCanvas");
+    const cropPreviewPanel = document.getElementById("cropPreviewPanel");
     const previewOptions = document.getElementById("previewOptions");
     const status = document.getElementById("status");
     const detectedActions = document.getElementById("detectedActions");
@@ -184,13 +238,18 @@
     const downloadButton = document.getElementById("downloadButton");
 
     let sourceImage = null;
+    let baseImageWidth = 0;
+    let baseImageHeight = 0;
+    let rotationDegrees = 0;
     let detectedQuad = null;
     let detectedCandidates = [];
     let selectedCandidateIndex = 0;
     let croppedBlob = null;
     let detectionWorker = null;
+    let detectionRequestId = 0;
     let borderAnimationFrame = null;
     let manualAdjustmentActive = false;
+    let manualToolsVisible = false;
     let dragState = null;
     const borderColors = ["#35d07f", "#ff4d4f", "#4d79ff"];
 
@@ -201,6 +260,56 @@
 
     function distance(a, b) {
         return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function rotatedCanvasSize(degrees) {
+        const radians = degrees * Math.PI / 180;
+        const cosine = Math.abs(Math.cos(radians));
+        const sine = Math.abs(Math.sin(radians));
+        return {
+            width: Math.ceil(baseImageWidth * cosine + baseImageHeight * sine),
+            height: Math.ceil(baseImageWidth * sine + baseImageHeight * cosine)
+        };
+    }
+
+    function rotateQuad(points, degrees, oldWidth, oldHeight, newWidth, newHeight) {
+        const radians = degrees * Math.PI / 180;
+        const cosine = Math.cos(radians);
+        const sine = Math.sin(radians);
+
+        return points.map((point) => {
+            const x = point.x - oldWidth / 2;
+            const y = point.y - oldHeight / 2;
+            return {
+                x: newWidth / 2 + x * cosine - y * sine,
+                y: newHeight / 2 + x * sine + y * cosine
+            };
+        });
+    }
+
+    function renderRotatedImage() {
+        const radians = rotationDegrees * Math.PI / 180;
+        const { width, height } = rotatedCanvasSize(rotationDegrees);
+
+        sourceCanvas.width = width;
+        sourceCanvas.height = height;
+        overlayCanvas.width = width;
+        overlayCanvas.height = height;
+
+        const context = sourceCanvas.getContext("2d");
+        context.clearRect(0, 0, width, height);
+        context.save();
+        context.translate(width / 2, height / 2);
+        context.rotate(radians);
+        context.drawImage(
+            sourceImage,
+            -baseImageWidth / 2,
+            -baseImageHeight / 2,
+            baseImageWidth,
+            baseImageHeight
+        );
+        context.restore();
+        clearOverlay();
     }
 
     function orderQuad(points) {
@@ -374,10 +483,24 @@
 
         manualAdjustmentActive = !manualAdjustmentActive;
         dragState = null;
+        manualToolsVisible = true;
+        rotationControl.classList.remove("hidden");
+        cropPreviewPanel.classList.remove("hidden");
+        previewOptions.classList.remove("hidden");
         overlayCanvas.classList.toggle("adjustable", manualAdjustmentActive);
-        previewOptions.classList.add("hidden");
 
         if (manualAdjustmentActive) {
+            const optionCount = previewOptions.querySelectorAll(".crop-option").length;
+            if (optionCount !== detectedCandidates.length) {
+                const previousIndex = selectedCandidateIndex;
+                renderCandidatePreviews(detectedCandidates);
+                selectedCandidateIndex = Math.min(
+                    previousIndex,
+                    detectedCandidates.length - 1
+                );
+                detectedQuad = detectedCandidates[selectedCandidateIndex];
+                selectCandidate(selectedCandidateIndex);
+            }
             croppedBlob = null;
             croppedActions.classList.add("hidden");
             adjustCornersButton.textContent = "Finish adjustment";
@@ -386,7 +509,7 @@
             return;
         }
 
-        adjustCornersButton.textContent = "Adjust corners";
+        adjustCornersButton.textContent = "Manual adjustment";
         drawDetectedLines(selectedQuad());
         showStatus("Review the outline, then confirm the crop.", "info");
     }
@@ -499,6 +622,25 @@
 
     function clearPreview() {
         previewOptions.replaceChildren();
+    }
+
+    function refreshCandidatePreviews() {
+        const previousIndex = selectedCandidateIndex;
+        clearPreview();
+        if (!manualToolsVisible || !detectedCandidates.length) return;
+
+        cropPreviewPanel.classList.remove("hidden");
+        previewOptions.classList.remove("hidden");
+        renderCandidatePreviews(detectedCandidates);
+        selectedCandidateIndex = Math.min(
+            previousIndex,
+            detectedCandidates.length - 1
+        );
+        detectedQuad = detectedCandidates[selectedCandidateIndex];
+        selectCandidate(selectedCandidateIndex);
+        if (manualAdjustmentActive) {
+            drawManualQuad();
+        }
     }
 
     function createDetectionWorker() {
@@ -914,6 +1056,7 @@
             return;
         }
 
+        const requestId = ++detectionRequestId;
         manualAdjustmentActive = false;
         dragState = null;
         overlayCanvas.classList.remove("adjustable");
@@ -923,44 +1066,50 @@
         croppedBlob = null;
         confirmButton.disabled = false;
         adjustCornersButton.disabled = false;
-        adjustCornersButton.textContent = "Adjust corners";
+        adjustCornersButton.textContent = "Manual adjustment";
         detectedActions.classList.add("hidden");
         croppedActions.classList.add("hidden");
-        previewOptions.classList.remove("hidden");
+        previewOptions.classList.toggle("hidden", !manualToolsVisible);
+        cropPreviewPanel.classList.toggle("hidden", !manualToolsVisible);
         clearOverlay();
         clearPreview();
         showStatus("Scanning the image for a card border...", "info");
 
         const worker = createDetectionWorker();
         worker.onmessage = function (event) {
+            if (requestId !== detectionRequestId) return;
             if (!event.data.quad) {
                 clearOverlay();
                 confirmButton.disabled = true;
-                adjustCornersButton.textContent = "Set corners manually";
+                adjustCornersButton.textContent = "Manual adjustment";
                 detectedActions.classList.remove("hidden");
-                showStatus("Card not found. You can set the crop corners manually.", "warning");
+                showStatus("Card not found. Select Manual adjustment to set the crop corners.", "warning");
                 return;
             }
 
             detectedQuad = event.data.quad;
             confirmButton.disabled = false;
-            adjustCornersButton.textContent = "Adjust corners";
+            adjustCornersButton.textContent = "Manual adjustment";
             renderCandidatePreviews(
                 event.data.candidates && event.data.candidates.length
                     ? event.data.candidates
                     : [event.data.quad]
             );
             drawDetectedCandidates(detectedCandidates);
-            showStatus("Card border found. Select a crop and confirm.", "success");
+            showStatus(
+                "Card border found. Confirm the crop or select Manual adjustment for more options.",
+                "success"
+            );
             detectedActions.classList.remove("hidden");
         };
         worker.onerror = function (event) {
+            if (requestId !== detectionRequestId) return;
             console.error(event);
             clearOverlay();
             confirmButton.disabled = true;
-            adjustCornersButton.textContent = "Set corners manually";
+            adjustCornersButton.textContent = "Manual adjustment";
             detectedActions.classList.remove("hidden");
-            showStatus("Card detection failed. You can set the crop corners manually.", "warning");
+            showStatus("Card detection failed. Select Manual adjustment to set the crop corners.", "warning");
         };
 
         const context = sourceCanvas.getContext("2d");
@@ -976,6 +1125,84 @@
         );
     }
 
+    function updateRotation(value, deferPreviewRefresh = false) {
+        const numericValue = Number(value);
+        if (!Number.isFinite(numericValue)) {
+            rotationInput.value = String(rotationDegrees);
+            return;
+        }
+
+        const nextRotation = Math.round(
+            Math.max(-180, Math.min(180, numericValue))
+        );
+        rotationInput.value = String(nextRotation);
+        rotationSlider.value = String(nextRotation);
+        if (nextRotation === rotationDegrees) return;
+
+        if (sourceImage) {
+            const oldWidth = sourceCanvas.width;
+            const oldHeight = sourceCanvas.height;
+            const { width, height } = rotatedCanvasSize(nextRotation);
+            const rotationDelta = nextRotation - rotationDegrees;
+            detectedCandidates = detectedCandidates.map((quad) =>
+                rotateQuad(
+                    quad,
+                    rotationDelta,
+                    oldWidth,
+                    oldHeight,
+                    width,
+                    height
+                )
+            );
+            if (detectedCandidates.length) {
+                detectedQuad = detectedCandidates[
+                    Math.min(selectedCandidateIndex, detectedCandidates.length - 1)
+                ];
+            } else if (detectedQuad) {
+                detectedQuad = rotateQuad(
+                    detectedQuad,
+                    rotationDelta,
+                    oldWidth,
+                    oldHeight,
+                    width,
+                    height
+                );
+            }
+        }
+
+        rotationDegrees = nextRotation;
+        if (!sourceImage) return;
+
+        detectionRequestId += 1;
+        renderRotatedImage();
+        dragState = null;
+        croppedBlob = null;
+        confirmButton.disabled = !detectedQuad;
+        adjustCornersButton.disabled = false;
+        detectedActions.classList.remove("hidden");
+        croppedActions.classList.add("hidden");
+        if (manualToolsVisible && deferPreviewRefresh) {
+            clearPreview();
+            cropPreviewPanel.classList.add("hidden");
+        } else {
+            refreshCandidatePreviews();
+        }
+
+        if (manualAdjustmentActive) {
+            drawManualQuad();
+        } else if (detectedCandidates.length) {
+            drawDetectedCandidates(detectedCandidates);
+        } else {
+            clearOverlay();
+        }
+        showStatus(
+            detectedQuad
+                ? "Image rotated. The crop outline follows the image; adjust it if needed."
+                : "Image rotated. Select Manual adjustment to set the crop corners.",
+            "info"
+        );
+    }
+
     function confirmCrop() {
         if (!detectedQuad) {
             return;
@@ -987,7 +1214,7 @@
             manualAdjustmentActive = false;
             dragState = null;
             overlayCanvas.classList.remove("adjustable");
-            adjustCornersButton.textContent = "Adjust corners";
+            adjustCornersButton.textContent = "Manual adjustment";
             drawDetectedLines(selectedQuad());
             showStatus("Preparing the cropped preview...", "info");
             const worker = createDetectionWorker();
@@ -1049,10 +1276,22 @@
                     croppedBlob = blob;
                     confirmButton.disabled = false;
                     adjustCornersButton.disabled = false;
-                    adjustCornersButton.textContent = "Adjust corners";
+                    adjustCornersButton.textContent = "Manual adjustment";
                     detectedActions.classList.remove("hidden");
                     croppedActions.classList.remove("hidden");
+                    cropPreviewPanel.classList.remove("hidden");
                     previewOptions.classList.remove("hidden");
+                    if (!manualToolsVisible) {
+                        const selectedOption = selectedCanvas.closest(".crop-option");
+                        if (selectedOption) {
+                            selectedOption.classList.add("selected");
+                            const label = selectedOption.querySelector(".crop-option-label");
+                            if (label) {
+                                label.replaceChildren(document.createTextNode("Cropped card"));
+                            }
+                            previewOptions.replaceChildren(selectedOption);
+                        }
+                    }
                     showStatus("Crop ready.", "success");
                 }, "image/jpeg", 0.92);
             };
@@ -1092,27 +1331,40 @@
             return;
         }
 
+        detectionRequestId += 1;
+        manualToolsVisible = false;
+        manualAdjustmentActive = false;
+        rotationControl.classList.add("hidden");
+        cropPreviewPanel.classList.add("hidden");
+        previewOptions.classList.add("hidden");
+        detectedActions.classList.add("hidden");
+        croppedActions.classList.add("hidden");
+        adjustCornersButton.textContent = "Manual adjustment";
         sourceImage = new Image();
         sourceImage.onload = function () {
             const scale = Math.min(
                 1,
                 900 / Math.max(sourceImage.naturalWidth, sourceImage.naturalHeight)
             );
-            sourceCanvas.width = Math.round(sourceImage.naturalWidth * scale);
-            sourceCanvas.height = Math.round(sourceImage.naturalHeight * scale);
-            overlayCanvas.width = sourceCanvas.width;
-            overlayCanvas.height = sourceCanvas.height;
-
-            const context = sourceCanvas.getContext("2d");
-            context.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-            context.drawImage(sourceImage, 0, 0, sourceCanvas.width, sourceCanvas.height);
-
+            baseImageWidth = Math.round(sourceImage.naturalWidth * scale);
+            baseImageHeight = Math.round(sourceImage.naturalHeight * scale);
+            rotationDegrees = 0;
+            rotationInput.value = "0";
+            rotationSlider.value = "0";
+            renderRotatedImage();
             stage.classList.remove("hidden");
             detectCard();
         };
         sourceImage.src = URL.createObjectURL(file);
     });
 
+    rotationSlider.addEventListener("input", function () {
+        updateRotation(rotationSlider.value, true);
+    });
+    rotationSlider.addEventListener("change", refreshCandidatePreviews);
+    rotationInput.addEventListener("change", function () {
+        updateRotation(rotationInput.valueAsNumber);
+    });
     confirmButton.addEventListener("click", confirmCrop);
     adjustCornersButton.addEventListener("click", toggleCornerAdjustment);
     scanAgainButton.addEventListener("click", detectCard);
