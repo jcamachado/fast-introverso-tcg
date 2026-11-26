@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 import os
+import re
 import shutil
 from datetime import datetime
 from typing import List, Optional
@@ -21,6 +22,13 @@ from app.database import engine, Base, get_db
 from app.models import User, Card
 from app.auth import hash_password, verify_password, authenticate_user, get_current_user, get_current_admin_user
 from app.admin import setup_admin
+from app.tcgdex import (
+    TCGdexUnavailable,
+    get_card,
+    search_cards,
+    serialize_card_details,
+    serialize_card_result,
+)
 
 app = FastAPI(title="TCG Collection Manager")
 
@@ -181,6 +189,46 @@ async def share_cards(
 @app.get("/cards/create", response_class=HTMLResponse)
 async def create_card_page(request: Request, current_user: User = Depends(get_current_user)):
     return templates.TemplateResponse("create.html", {"request": request, "user": current_user})
+
+@app.get("/api/tcgdex/cards")
+async def search_tcgdex_cards(
+    q: str,
+    current_user: User = Depends(get_current_user)
+):
+    query = q.strip()
+    if len(query) < 2 or len(query) > 80:
+        raise HTTPException(status_code=422, detail="Search terms must be 2 to 80 characters.")
+
+    try:
+        cards = await search_cards(query)
+    except TCGdexUnavailable as error:
+        raise HTTPException(
+            status_code=502,
+            detail="TCGdex is unavailable. Please try again later."
+        ) from error
+
+    return [serialize_card_result(card) for card in cards]
+
+@app.get("/api/tcgdex/cards/{card_id}")
+async def get_tcgdex_card(
+    card_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", card_id):
+        raise HTTPException(status_code=422, detail="Invalid TCGdex card ID.")
+
+    try:
+        card = await get_card(card_id)
+    except TCGdexUnavailable as error:
+        raise HTTPException(
+            status_code=502,
+            detail="TCGdex is unavailable. Please try again later."
+        ) from error
+
+    if card is None:
+        raise HTTPException(status_code=404, detail="TCGdex card not found.")
+
+    return serialize_card_details(card)
 
 @app.get("/cards/crop_card", response_class=HTMLResponse)
 async def crop_card_page(

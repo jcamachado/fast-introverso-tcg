@@ -8,3 +8,4 @@ python-dotenv==1.0.1
 fastadmin==0.4.0
 passlib==1.7.4
 bcrypt==4.2.0
+tcgdex-sdk==2.3.0

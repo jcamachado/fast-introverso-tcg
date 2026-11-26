@@ -16,6 +16,14 @@ uvicorn app.main:app --reload
 
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
+## TCGdex card lookup
+
+On the **Add Card** page, upload a picture to recognize its text in your browser
+and get TCGdex suggestions. Select a match to fill in its details; your uploaded
+picture is saved with the card. You can edit the detected name and search again.
+Install the integration with the other application dependencies using
+`pip install -r requirements.txt`.
+
 testing user
 jaxe
 a1a1a1a1

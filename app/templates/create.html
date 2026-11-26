@@ -23,6 +23,27 @@
     <h1 class="mb-4">Add New Card</h1>
 
     <form method="post" enctype="multipart/form-data">
+        <section class="mb-4 p-3 border rounded" aria-labelledby="card-image-heading">
+            <h2 id="card-image-heading" class="h5">Start with your card image</h2>
+            <p class="text-muted">Upload a picture to identify the card. Text recognition runs in your browser; the picture is saved with the card when you submit.</p>
+            <label for="picture" class="form-label">Card image</label>
+            <input id="picture" type="file" name="picture" class="form-control" accept="image/*">
+            <div class="mt-3">
+                <img id="uploaded-card-preview" class="img-thumbnail d-none" alt="Uploaded card preview" style="max-width: 220px;">
+            </div>
+        </section>
+
+        <section class="mb-4 p-3 border rounded" aria-labelledby="tcgdex-search-heading">
+            <h2 id="tcgdex-search-heading" class="h5">Suggested TCGdex matches</h2>
+            <p class="text-muted">Upload an image to read its text and find matching cards. You can edit the detected name before searching.</p>
+            <div class="input-group">
+                <input id="tcgdex-search" type="search" class="form-control" placeholder="Detected card name" aria-label="Card name to search" disabled>
+                <button id="tcgdex-search-button" class="btn btn-outline-primary" type="button" disabled>Find matches</button>
+            </div>
+            <div id="tcgdex-status" class="form-text mt-2" role="status" aria-live="polite"></div>
+            <div id="tcgdex-results" class="list-group mt-2"></div>
+        </section>
+
         <div class="mb-3">
             <label class="form-label">Name</label>
             <input
@@ -100,16 +121,6 @@
             ></textarea>
         </div>
 
-        <div class="mb-4">
-            <label class="form-label">Picture</label>
-            <input
-                type="file"
-                name="picture"
-                class="form-control"
-                accept="image/*"
-            >
-        </div>
-
         <button type="submit" class="btn btn-primary">
             <i class="bi bi-plus-circle me-1"></i>
             Create Card
@@ -120,4 +131,169 @@
         </a>
     </form>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+    const pictureInput = document.getElementById("picture");
+    const uploadedCardPreview = document.getElementById("uploaded-card-preview");
+    const tcgdexSearch = document.getElementById("tcgdex-search");
+    const tcgdexSearchButton = document.getElementById("tcgdex-search-button");
+    const tcgdexStatus = document.getElementById("tcgdex-status");
+    const tcgdexResults = document.getElementById("tcgdex-results");
+    let ocrWorker = null;
+    let previewUrl = null;
+
+    function clearMatchedCard() {
+        for (const field of ["name", "variant", "collection_name", "number", "collection_number", "extra_data"]) {
+            document.querySelector(`[name="${field}"]`).value = "";
+        }
+    }
+
+    async function selectTcgdexCard(cardId) {
+        tcgdexStatus.textContent = "Loading card details…";
+        try {
+            const response = await fetch(`/api/tcgdex/cards/${encodeURIComponent(cardId)}`);
+            const card = await response.json();
+            if (!response.ok) throw new Error(card.detail || "Could not load card details.");
+
+            document.querySelector('[name="name"]').value = card.name;
+            document.querySelector('[name="variant"]').value = card.variant;
+            document.querySelector('[name="collection_name"]').value = card.collection_name;
+            document.querySelector('[name="number"]').value = card.number;
+            document.querySelector('[name="collection_number"]').value = card.collection_number;
+            document.querySelector('[name="extra_data"]').value = JSON.stringify(card.extra_data, null, 2);
+            tcgdexStatus.textContent = `Selected ${card.name} (${card.id}). Your uploaded image will be saved with the card.`;
+        } catch (error) {
+            tcgdexStatus.textContent = error.message;
+        }
+    }
+
+    function getOcrSearchTerms(text) {
+        const ignoredWords = new Set([
+            "pokemon", "pokémon", "basic", "stage", "hp", "weakness",
+            "resistance", "retreat", "attack", "ability", "trainer",
+            "supporter", "item", "energy", "illustrator", "rule"
+        ]);
+        const terms = [];
+
+        for (const line of text.split(/\r?\n/).slice(0, 10)) {
+            const words = (line.replace(/\b\d+\s*hp\b.*$/i, "").match(/[A-Za-z][A-Za-z'-]*/g) || [])
+                .filter(word => word.length > 1 && !ignoredWords.has(word.toLowerCase()));
+            if (!words.length) continue;
+
+            terms.push(words.slice(0, 3).join(" "));
+            if (words.length > 1) terms.push(words[0]);
+            if (terms.length >= 6) break;
+        }
+
+        return [...new Set(terms.map(term => term.trim()).filter(term => term.length >= 2))].slice(0, 4);
+    }
+
+    async function searchTcgdex(queries = [tcgdexSearch.value]) {
+        const terms = [...new Set(queries.map(query => query.trim()).filter(query => query.length >= 2))].slice(0, 4);
+        if (!terms.length) {
+            tcgdexStatus.textContent = "No card name was detected. Enter a name of at least 2 characters.";
+            tcgdexResults.replaceChildren();
+            return;
+        }
+
+        tcgdexSearchButton.disabled = true;
+        tcgdexStatus.textContent = `Searching TCGdex for: ${terms.join(", ")}…`;
+        tcgdexResults.replaceChildren();
+        try {
+            const results = await Promise.all(terms.map(async term => {
+                const response = await fetch(`/api/tcgdex/cards?q=${encodeURIComponent(term)}`);
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.detail || "TCGdex search failed.");
+                return payload;
+            }));
+            const cards = [...new Map(results.flat().map(card => [card.id, card])).values()].slice(0, 12);
+
+            if (!cards.length) {
+                tcgdexStatus.textContent = "No matches found. Edit the detected name and try again.";
+                return;
+            }
+
+            tcgdexStatus.textContent = `${cards.length} match(es). Select the card to fill in its details.`;
+            for (const card of cards) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "list-group-item list-group-item-action d-flex align-items-center gap-3";
+                button.addEventListener("click", () => selectTcgdexCard(card.id));
+
+                if (card.image_url) {
+                    const image = document.createElement("img");
+                    image.src = card.image_url;
+                    image.alt = "";
+                    image.className = "img-thumbnail";
+                    image.style.width = "48px";
+                    button.append(image);
+                }
+
+                const label = document.createElement("span");
+                label.textContent = `${card.name} — ${card.local_id} (${card.id})`;
+                button.append(label);
+                tcgdexResults.append(button);
+            }
+        } catch (error) {
+            tcgdexStatus.textContent = error.message;
+        } finally {
+            tcgdexSearchButton.disabled = false;
+        }
+    }
+
+    pictureInput.addEventListener("change", async () => {
+        const picture = pictureInput.files[0];
+        tcgdexResults.replaceChildren();
+        if (!picture) return;
+
+        if (!picture.type.startsWith("image/")) {
+            tcgdexStatus.textContent = "Choose an image file to find card matches.";
+            return;
+        }
+
+        clearMatchedCard();
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(picture);
+        uploadedCardPreview.src = previewUrl;
+        uploadedCardPreview.classList.remove("d-none");
+        tcgdexSearch.disabled = false;
+        tcgdexSearchButton.disabled = true;
+        tcgdexStatus.textContent = "Reading card text in your browser…";
+
+        try {
+            if (!ocrWorker) ocrWorker = await Tesseract.createWorker("eng");
+            const result = await ocrWorker.recognize(picture);
+            const terms = getOcrSearchTerms(result.data.text);
+
+            if (!terms.length) {
+                tcgdexStatus.textContent = "Could not read a card name. Enter it above and search for matches.";
+                tcgdexSearchButton.disabled = false;
+                return;
+            }
+
+            tcgdexSearch.value = terms[0];
+            await searchTcgdex(terms);
+        } catch (error) {
+            tcgdexStatus.textContent = `Could not read the image: ${error.message}. Enter a card name to search manually.`;
+            tcgdexSearchButton.disabled = false;
+        }
+    });
+
+    tcgdexSearchButton.addEventListener("click", () => searchTcgdex());
+    tcgdexSearch.addEventListener("input", clearMatchedCard);
+    tcgdexSearch.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            searchTcgdex();
+        }
+    });
+
+    window.addEventListener("pagehide", () => {
+        if (ocrWorker) ocrWorker.terminate();
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+    });
+</script>
 {% endblock %}
