@@ -26,15 +26,16 @@ Install the integration with the other application dependencies using
 
 ## Crop adjustment
 
-On the **Crop Card Image** page, upload one or more images. Each image has its
-own crop, download, and save controls; select images with their checkboxes to
-use the bulk download and save actions. Select **Manual adjustment** to reveal
-crop choices and image rotation controls. Rotate the image with the slider or
-enter an angle from -180 to 180 degrees in the box above it. Drag the corner
-handles to fit the card, or drag inside the outline to move it; the crop outline
-follows the image as it rotates. If automatic detection misses, manual
-adjustment creates an adjustable starting outline. Confirming the crop applies
-perspective correction. Saving creates a card named from its uploaded filename.
+On the **Crop Card Image** page, upload one or more images. Each image appears
+in a responsive list row with a preview and its own edit, download, and save
+controls. Images are preselected for the bulk actions and automatically checked
+for a card outline; each row shows a green detected or red not-detected status.
+Select **Edit crop** to open manual adjustment inline to the right of that
+image's preview and controls. Rotate the image with the slider or enter an angle
+from -180 to 180 degrees in the box above it. Drag the corner handles to fit the
+card, or drag inside the outline to move it; the crop outline follows the image
+as it rotates. Confirming the crop applies perspective correction. Saving
+creates a card named from its uploaded filename.
 
 testing user
 jaxe

@@ -12,8 +12,8 @@
     }
 
     .image-queue {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
+        display: flex;
+        flex-direction: column;
         gap: 12px;
     }
 
@@ -22,17 +22,80 @@
         box-shadow: 0 0 0 3px rgba(49, 87, 213, 0.12);
     }
 
+    .image-item {
+        min-width: 0;
+    }
+
+    .image-item .card-body {
+        display: grid;
+        grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+    }
+
+    .image-item.active .card-body {
+        grid-template-columns: minmax(112px, 150px) minmax(190px, 230px) minmax(0, 1fr);
+    }
+
+    .image-item-details {
+        grid-column: 2;
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .image-item-heading {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        min-width: 0;
+    }
+
     .image-thumbnail {
-        width: 64px;
-        height: 84px;
-        flex: 0 0 64px;
+        display: block;
+        grid-column: 1;
+        width: 100%;
+        height: clamp(150px, 18vw, 220px);
         object-fit: contain;
         background: #e9ecef;
-        border-radius: 4px;
+        border-radius: 6px;
+    }
+
+    .image-item-editor {
+        width: 100%;
+        min-width: 0;
+        padding-left: 16px;
+        border-left: 1px solid #dee2e6;
+    }
+
+    .image-item.active [data-role="editorMount"] {
+        grid-column: 3;
+        min-width: 0;
+    }
+
+    .image-item-editor .crop-layout {
+        grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr);
+        gap: 12px;
     }
 
     .image-item-actions {
-        justify-content: flex-end;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: auto;
+    }
+
+    .image-item-actions .btn {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        padding: 6px 3px;
+        white-space: normal;
+        line-height: 1.15;
     }
 
     .min-width-0 {
@@ -138,13 +201,29 @@
         display: none;
     }
 
+    @media (max-width: 900px) {
+        .image-item.active .card-body {
+            grid-template-columns: minmax(100px, 160px) minmax(0, 1fr);
+        }
+
+        .image-item-editor {
+            padding: 16px 0 0;
+            border-top: 1px solid #dee2e6;
+            border-left: 0;
+        }
+
+        .image-item.active [data-role="editorMount"] {
+            grid-column: 1 / -1;
+        }
+    }
+
     @media (max-width: 768px) {
         .crop-layout {
             grid-template-columns: 1fr;
         }
 
-        .image-item-actions {
-            width: 100%;
+        .image-item-editor .crop-layout {
+            grid-template-columns: 1fr;
         }
     }
 </style>
@@ -194,34 +273,44 @@
 
 <template id="imageItemTemplate">
     <article class="image-item card">
-        <div class="card-body d-flex align-items-center gap-3">
-            <input data-role="checkbox" class="form-check-input mt-0" type="checkbox" checked>
+        <div class="card-body">
             <img data-role="thumbnail" class="image-thumbnail" alt="">
-            <div class="flex-grow-1 min-width-0">
-                <h3 data-role="name" class="h6 text-truncate mb-1"></h3>
-                <span data-role="status" class="badge text-bg-secondary">Waiting</span>
+            <div class="image-item-details">
+                <div class="image-item-heading">
+                    <input data-role="checkbox" class="form-check-input mt-1" type="checkbox" checked>
+                    <div class="flex-grow-1 min-width-0">
+                        <h3 data-role="name" class="h6 text-truncate mb-1"></h3>
+                        <span class="d-flex align-items-center gap-2 small" role="status" aria-live="polite">
+                            <i data-role="statusIcon" class="bi bi-hourglass-split text-secondary" aria-hidden="true"></i>
+                            <span data-role="status">Waiting for detection</span>
+                        </span>
+                    </div>
+                </div>
+                <div class="image-item-actions">
+                    <button data-role="crop" class="btn btn-sm btn-outline-primary" type="button">
+                        <i class="bi bi-crop"></i>
+                        Edit crop
+                    </button>
+                    <button data-role="download" class="btn btn-sm btn-outline-primary" type="button" disabled>
+                        <i class="bi bi-download"></i>
+                        Download
+                    </button>
+                    <button data-role="save" class="btn btn-sm btn-primary" type="button" disabled>
+                        <i class="bi bi-save"></i>
+                        Save
+                    </button>
+                </div>
             </div>
-            <div class="image-item-actions d-flex flex-wrap gap-2">
-                <button data-role="crop" class="btn btn-sm btn-outline-primary" type="button">
-                    <i class="bi bi-crop"></i>
-                    Crop
-                </button>
-                <button data-role="download" class="btn btn-sm btn-outline-primary" type="button" disabled>
-                    <i class="bi bi-download"></i>
-                    Download
-                </button>
-                <button data-role="save" class="btn btn-sm btn-primary" type="button" disabled>
-                    <i class="bi bi-save"></i>
-                    Save
-                </button>
-            </div>
+            <div data-role="editorMount" class="hidden"></div>
         </div>
     </article>
 </template>
 
-<div id="editorPanel" class="hidden">
-    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
-        <h2 id="activeImageName" class="h4 text-break mb-0"></h2>
+<div id="editorPanel" class="image-item-editor hidden">
+    <div class="d-flex justify-content-end mb-3">
+        <button id="closeEditorButton" class="btn btn-sm btn-outline-secondary" type="button">
+            Close editor
+        </button>
     </div>
 
     <div id="status" class="alert alert-info hidden" role="status"></div>
@@ -300,7 +389,7 @@
     const downloadSelectedButton = document.getElementById("downloadSelectedButton");
     const saveSelectedButton = document.getElementById("saveSelectedButton");
     const editorPanel = document.getElementById("editorPanel");
-    const activeImageName = document.getElementById("activeImageName");
+    const closeEditorButton = document.getElementById("closeEditorButton");
     const stage = document.getElementById("stage");
     const rotationControl = document.getElementById("rotationControl");
     const rotationInput = document.getElementById("rotationInput");
@@ -317,6 +406,7 @@
 
     let imageItems = [];
     let activeItem = null;
+    let editorOpen = false;
     let nextImageItemId = 0;
     let sourceImage = null;
     let baseImageWidth = 0;
@@ -326,12 +416,14 @@
     let detectedCandidates = [];
     let selectedCandidateIndex = 0;
     let croppedBlob = null;
-    let detectionWorker = null;
     let detectionRequestId = 0;
     let borderAnimationFrame = null;
     let manualAdjustmentActive = false;
     let manualToolsVisible = false;
     let dragState = null;
+    const automaticDetectionQueue = [];
+    let automaticDetectionRunning = false;
+    let automaticDetectionWorker = null;
     const borderColors = ["#35d07f", "#ff4d4f", "#4d79ff"];
 
     function imageBaseName(item) {
@@ -363,6 +455,29 @@
 
     function updateImageItem(item) {
         const { elements } = item;
+        const detectionDisplay = {
+            queued: {
+                icon: "bi-hourglass-split",
+                color: "text-secondary",
+                message: "Waiting for detection"
+            },
+            scanning: {
+                icon: "bi-arrow-repeat",
+                color: "text-primary",
+                message: "Detecting card outline..."
+            },
+            detected: {
+                icon: "bi-check-circle-fill",
+                color: "text-success",
+                message: "Card outline detected"
+            },
+            "not-detected": {
+                icon: "bi-x-circle-fill",
+                color: "text-danger",
+                message: "Card outline not detected"
+            }
+        }[item.detectionStatus];
+
         elements.name.textContent = item.file.name;
         elements.name.title = item.file.name;
         elements.checkbox.checked = item.selected;
@@ -370,12 +485,10 @@
             "aria-label",
             `Select ${item.file.name} for bulk actions`
         );
-        elements.status.textContent = item.saved
-            ? "Saved"
-            : item.croppedBlob
-                ? "Crop ready"
-                : item.stateText;
-        elements.crop.textContent = item === activeItem ? "Editing" : "Crop";
+        elements.statusIcon.className = `bi ${detectionDisplay.icon} ${detectionDisplay.color}`;
+        elements.status.textContent = detectionDisplay.message;
+        elements.crop.textContent =
+            item === activeItem && editorOpen ? "Editing" : "Edit crop";
         elements.crop.disabled = item.saved;
         elements.download.disabled = !item.croppedBlob;
         elements.save.disabled = !item.croppedBlob || item.saved || item.saving;
@@ -396,7 +509,7 @@
             elements.thumbnail.alt = `Preview of ${item.file.name}`;
         }
 
-        item.element.classList.toggle("active", item === activeItem);
+        item.element.classList.toggle("active", item === activeItem && editorOpen);
         updateBatchActions();
     }
 
@@ -413,7 +526,8 @@
             selected: true,
             element: element,
             elements: elements,
-            stateText: "Waiting to crop",
+            stateText: "Scanning",
+            detectionStatus: "queued",
             processed: false,
             rotationDegrees: 0,
             detectedQuad: null,
@@ -427,7 +541,8 @@
             saved: false,
             saving: false,
             editorMessage: null,
-            editorStatusType: null
+            editorStatusType: null,
+            manualEdited: false
         };
 
         elements.checkbox.addEventListener("change", function () {
@@ -435,7 +550,7 @@
             updateBatchActions();
         });
         elements.crop.addEventListener("click", function () {
-            activateImageItem(item);
+            activateImageItem(item, true);
         });
         elements.download.addEventListener("click", function () {
             if (item.croppedBlob) {
@@ -449,7 +564,121 @@
         imageItems.push(item);
         imageQueue.appendChild(element);
         updateImageItem(item);
+        queueAutomaticDetection(item);
         return item;
+    }
+
+    function queueAutomaticDetection(item) {
+        automaticDetectionQueue.push(item);
+        processAutomaticDetectionQueue();
+    }
+
+    function processAutomaticDetectionQueue() {
+        if (automaticDetectionRunning) return;
+        const item = automaticDetectionQueue.shift();
+        if (!item) return;
+
+        automaticDetectionRunning = true;
+        item.detectionStatus = "scanning";
+        updateImageItem(item);
+
+        let worker = null;
+        let completed = false;
+        const finishDetection = function (quad, candidates, resetWorker = false) {
+            if (completed) return;
+            completed = true;
+            clearTimeout(timeoutId);
+            if (resetWorker && worker) {
+                worker.terminate();
+                if (automaticDetectionWorker === worker) {
+                    automaticDetectionWorker = null;
+                }
+            }
+            if (quad && !item.manualEdited) {
+                item.detectedQuad = quad.map((point) => ({ ...point }));
+                item.detectedCandidates = candidates.map((candidate) =>
+                    candidate.map((point) => ({ ...point }))
+                );
+                if (!item.detectedCandidates.length) {
+                    item.detectedCandidates = [item.detectedQuad];
+                }
+                item.selectedCandidateIndex = 0;
+            }
+            item.detectionStatus = quad ? "detected" : "not-detected";
+            item.processed = true;
+            item.stateText = quad ? "Card outline detected" : "Card outline not detected";
+
+            if (activeItem === item && editorOpen) {
+                if (quad && !item.manualEdited) {
+                    applyAutomaticDetectionToActiveEditor(item);
+                } else if (!quad) {
+                    showStatus(
+                        "Card outline not detected. Adjust the crop corners manually.",
+                        "warning"
+                    );
+                }
+            }
+
+            updateImageItem(item);
+            automaticDetectionRunning = false;
+            processAutomaticDetectionQueue();
+        };
+
+        const timeoutId = setTimeout(function () {
+            finishDetection(null, [], true);
+        }, 20000);
+        const image = new Image();
+        image.onload = function () {
+            if (completed) return;
+            try {
+                const scale = Math.min(
+                    1,
+                    900 / Math.max(image.naturalWidth, image.naturalHeight)
+                );
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.round(image.naturalWidth * scale);
+                canvas.height = Math.round(image.naturalHeight * scale);
+                const context = canvas.getContext("2d", { willReadFrequently: true });
+                if (!context) {
+                    throw new Error("Unable to create a canvas for card detection.");
+                }
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                const imageData = context.getImageData(
+                    0,
+                    0,
+                    canvas.width,
+                    canvas.height
+                );
+
+                worker = automaticDetectionWorker || createDetectionWorker();
+                automaticDetectionWorker = worker;
+                worker.onmessage = function (event) {
+                    if (event.data.error) {
+                        console.error(new Error(event.data.error));
+                    }
+                    finishDetection(
+                        event.data.quad || null,
+                        event.data.candidates || [],
+                        !!event.data.error
+                    );
+                };
+                worker.onerror = function (event) {
+                    console.error(event);
+                    finishDetection(null, [], true);
+                };
+                worker.postMessage(
+                    { action: "detect", imageData: imageData },
+                    [imageData.data.buffer]
+                );
+            } catch (error) {
+                console.error(error);
+                finishDetection(null, [], true);
+            }
+        };
+        image.onerror = function () {
+            finishDetection(null, []);
+        };
+        image.src = item.sourceUrl;
     }
 
     function captureActiveItemState() {
@@ -497,7 +726,7 @@
     }
 
     async function saveCroppedItems(items) {
-        captureActiveItemState();
+        if (editorOpen) captureActiveItemState();
         const saveable = items.filter(
             (item) => item.croppedBlob && !item.saved && !item.saving
         );
@@ -543,7 +772,7 @@
     }
 
     async function downloadSelectedCrops() {
-        captureActiveItemState();
+        if (editorOpen) captureActiveItemState();
         const selected = imageItems.filter(
             (item) => item.selected && item.croppedBlob
         );
@@ -674,13 +903,72 @@
         applyActiveItemLock();
     }
 
-    function activateImageItem(item) {
+    function applyAutomaticDetectionToActiveEditor(item) {
+        if (
+            activeItem !== item ||
+            !editorOpen ||
+            item.manualEdited ||
+            !item.detectedCandidates.length
+        ) {
+            return;
+        }
+
+        detectedCandidates = item.detectedCandidates.map((quad) =>
+            quad.map((point) => ({ ...point }))
+        );
+        selectedCandidateIndex = Math.min(
+            item.selectedCandidateIndex,
+            detectedCandidates.length - 1
+        );
+        detectedQuad = detectedCandidates[selectedCandidateIndex];
+        manualToolsVisible = true;
+        manualAdjustmentActive = true;
+        renderCandidatePreviews(detectedCandidates);
+        selectedCandidateIndex = Math.min(
+            item.selectedCandidateIndex,
+            detectedCandidates.length - 1
+        );
+        detectedQuad = detectedCandidates[selectedCandidateIndex];
+        rotationControl.classList.remove("hidden");
+        cropPreviewPanel.classList.remove("hidden");
+        previewOptions.classList.remove("hidden");
+        adjustCornersButton.textContent = "Finish adjustment";
+        confirmButton.disabled = false;
+        overlayCanvas.classList.add("adjustable");
+        drawManualQuad();
+        showStatus("Card outline detected. Adjust the corners if needed.", "success");
+        if (editorOpen) captureActiveItemState();
+    }
+
+    function activateImageItem(item, scrollToEditor = false) {
         if (activeItem === item) {
+            if (!editorOpen) {
+                item.elements.editorMount.classList.remove("hidden");
+                item.elements.editorMount.appendChild(editorPanel);
+                editorPanel.classList.remove("hidden");
+                editorOpen = true;
+                if (sourceImage && sourceImage.complete && sourceImage.naturalWidth) {
+                    restoreActiveItemState(item);
+                }
+            }
+            if (
+                !manualAdjustmentActive &&
+                sourceImage &&
+                sourceImage.complete &&
+                sourceImage.naturalWidth
+            ) {
+                toggleCornerAdjustment();
+            }
+            updateImageItem(item);
             editorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
             return;
         }
 
-        captureActiveItemState();
+        if (editorOpen) captureActiveItemState();
+        if (activeItem) {
+            activeItem.elements.editorMount.classList.add("hidden");
+        }
+        editorOpen = false;
         detectionRequestId += 1;
         activeItem = item;
         sourceImage = null;
@@ -695,8 +983,10 @@
         manualToolsVisible = false;
         dragState = null;
 
+        item.elements.editorMount.classList.remove("hidden");
+        item.elements.editorMount.appendChild(editorPanel);
         editorPanel.classList.remove("hidden");
-        activeImageName.textContent = item.file.name;
+        editorOpen = true;
         stage.classList.add("hidden");
         rotationControl.classList.add("hidden");
         cropPreviewPanel.classList.add("hidden");
@@ -716,30 +1006,35 @@
             );
             baseImageWidth = Math.round(sourceImage.naturalWidth * scale);
             baseImageHeight = Math.round(sourceImage.naturalHeight * scale);
-            if (item.processed) {
-                rotationDegrees = item.rotationDegrees;
-                renderRotatedImage();
-                stage.classList.remove("hidden");
-                restoreActiveItemState(item);
-                return;
-            }
-
-            rotationDegrees = 0;
-            rotationInput.value = "0";
-            rotationSlider.value = "0";
+            rotationDegrees = item.rotationDegrees;
+            rotationInput.value = String(rotationDegrees);
+            rotationSlider.value = String(rotationDegrees);
             renderRotatedImage();
             stage.classList.remove("hidden");
-            detectCard();
+            restoreActiveItemState(item);
+            if (!manualAdjustmentActive) toggleCornerAdjustment();
         };
         sourceImage.onerror = function () {
             if (activeItem !== item) return;
             item.stateText = "Could not load image";
+            item.detectionStatus = "not-detected";
             item.processed = true;
             updateImageItem(item);
             showStatus("Could not load this image. Choose a valid image file.", "danger");
         };
         sourceImage.src = item.sourceUrl;
-        editorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (scrollToEditor) {
+            editorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }
+
+    function closeActiveEditor() {
+        if (!activeItem || !editorOpen) return;
+        captureActiveItemState();
+        editorOpen = false;
+        editorPanel.classList.add("hidden");
+        activeItem.elements.editorMount.classList.add("hidden");
+        updateImageItem(activeItem);
     }
 
     function showStatus(message, type) {
@@ -1034,6 +1329,7 @@
         }
 
         overlayCanvas.setPointerCapture(event.pointerId);
+        if (activeItem) activeItem.manualEdited = true;
         event.preventDefault();
     });
 
@@ -1459,9 +1755,9 @@
         const workerUrl = URL.createObjectURL(
             new Blob([workerSource], { type: "application/javascript" })
         );
-        detectionWorker = new Worker(workerUrl);
+        const worker = new Worker(workerUrl);
         URL.revokeObjectURL(workerUrl);
-        return detectionWorker;
+        return worker;
     }
 
     function selectCandidate(index) {
@@ -1521,6 +1817,7 @@
 
             option.append(canvas, label);
             option.addEventListener("click", function () {
+                if (activeItem) activeItem.manualEdited = true;
                 selectCandidate(index);
             });
             previewOptions.appendChild(option);
@@ -1575,6 +1872,7 @@
             activeItem.processed = false;
             activeItem.croppedBlob = null;
             activeItem.stateText = "Scanning";
+            activeItem.detectionStatus = "scanning";
             updateImageItem(activeItem);
         }
         confirmButton.disabled = false;
@@ -1596,6 +1894,7 @@
             adjustCornersButton.textContent = "Manual adjustment";
             activeItem.processed = true;
             activeItem.stateText = "Manual crop needed";
+            activeItem.detectionStatus = "not-detected";
             updateImageItem(activeItem);
             detectedActions.classList.remove("hidden");
             showStatus(
@@ -1612,6 +1911,7 @@
                 adjustCornersButton.textContent = "Manual adjustment";
                 activeItem.processed = true;
                 activeItem.stateText = "Manual crop needed";
+                activeItem.detectionStatus = "not-detected";
                 updateImageItem(activeItem);
                 detectedActions.classList.remove("hidden");
                 showStatus("Card not found. Select Manual adjustment to set the crop corners.", "warning");
@@ -1629,6 +1929,7 @@
             drawDetectedCandidates(detectedCandidates);
             activeItem.processed = true;
             activeItem.stateText = "Ready to crop";
+            activeItem.detectionStatus = "detected";
             captureActiveItemState();
             showStatus(
                 "Card border found. Confirm the crop or select Manual adjustment for more options.",
@@ -1645,6 +1946,7 @@
             adjustCornersButton.textContent = "Manual adjustment";
             activeItem.processed = true;
             activeItem.stateText = "Manual crop needed";
+            activeItem.detectionStatus = "not-detected";
             updateImageItem(activeItem);
             detectedActions.classList.remove("hidden");
             showStatus("Card detection failed. Select Manual adjustment to set the crop corners.", "warning");
@@ -1676,6 +1978,7 @@
         rotationInput.value = String(nextRotation);
         rotationSlider.value = String(nextRotation);
         if (nextRotation === rotationDegrees) return;
+        if (activeItem) activeItem.manualEdited = true;
 
         if (sourceImage) {
             const oldWidth = sourceCanvas.width;
@@ -1752,6 +2055,7 @@
         }
 
         const cropItem = activeItem;
+        if (activeItem) activeItem.manualEdited = true;
         try {
             confirmButton.disabled = true;
             adjustCornersButton.disabled = true;
@@ -1908,13 +2212,11 @@
         if (!files.length) return;
 
         batchStatus.classList.add("hidden");
-        const addedItems = files.map(createImageItem);
+        files.forEach(createImageItem);
         updateBatchActions();
-        if (!activeItem && addedItems.length) {
-            activateImageItem(addedItems[0]);
-        }
     });
 
+    closeEditorButton.addEventListener("click", closeActiveEditor);
     rotationSlider.addEventListener("input", function () {
         updateRotation(rotationSlider.value, true);
     });
