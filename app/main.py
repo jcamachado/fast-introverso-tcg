@@ -6,9 +6,12 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
+from io import BytesIO
 import os
 import re
 import shutil
+import uuid
+import zipfile
 from datetime import datetime
 from typing import List, Optional
 import json
@@ -29,6 +32,7 @@ from app.tcgdex import (
     serialize_card_details,
     serialize_card_result,
 )
+from app.crop_utils import card_name_from_filename, is_jpeg_upload
 
 app = FastAPI(title="TCG Collection Manager")
 
@@ -241,6 +245,96 @@ async def crop_card_page(
             "request": request,
             "user": current_user
         }
+    )
+
+async def read_cropped_uploads(names: List[str], pictures: List[UploadFile]):
+    if not pictures or len(names) != len(pictures):
+        raise HTTPException(
+            status_code=422,
+            detail="Each cropped image must have a matching filename."
+        )
+
+    uploads = []
+    for name, picture in zip(names, pictures):
+        try:
+            card_name = card_name_from_filename(name)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+        content = await picture.read()
+        if not is_jpeg_upload(picture.content_type, content):
+            raise HTTPException(
+                status_code=415,
+                detail="Cropped images must be JPEG files."
+            )
+        uploads.append((card_name, content))
+    return uploads
+
+@app.post("/api/crops/save")
+async def save_cropped_cards(
+    names: List[str] = Form(...),
+    pictures: List[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    uploads = await read_cropped_uploads(names, pictures)
+    cards = []
+    written_paths = []
+    os.makedirs("static/uploads", exist_ok=True)
+
+    try:
+        for name, content in uploads:
+            filename = f"{uuid.uuid4().hex}.jpg"
+            file_path = os.path.join("static", "uploads", filename)
+            written_paths.append(file_path)
+            with open(file_path, "wb") as image_file:
+                image_file.write(content)
+            cards.append(Card(
+                name=name,
+                picture_path=f"uploads/{filename}",
+                owner_id=current_user.id
+            ))
+
+        db.add_all(cards)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        for file_path in written_paths:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        raise
+
+    return {
+        "cards": [
+            {"id": card.id, "name": card.name}
+            for card in cards
+        ]
+    }
+
+@app.post("/api/crops/download")
+async def download_cropped_cards(
+    names: List[str] = Form(...),
+    pictures: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    uploads = await read_cropped_uploads(names, pictures)
+    archive = BytesIO()
+    used_names = set()
+
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for name, content in uploads:
+            archive_name = f"{name}.jpg"
+            suffix = 2
+            while archive_name in used_names:
+                archive_name = f"{name} ({suffix}).jpg"
+                suffix += 1
+            used_names.add(archive_name)
+            zip_file.writestr(archive_name, content)
+
+    return Response(
+        content=archive.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="cropped-cards.zip"'}
     )
 
 @app.post("/cards/create")

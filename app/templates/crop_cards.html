@@ -11,6 +11,34 @@
         align-items: start;
     }
 
+    .image-queue {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
+        gap: 12px;
+    }
+
+    .image-item.active {
+        border-color: #3157d5;
+        box-shadow: 0 0 0 3px rgba(49, 87, 213, 0.12);
+    }
+
+    .image-thumbnail {
+        width: 64px;
+        height: 84px;
+        flex: 0 0 64px;
+        object-fit: contain;
+        background: #e9ecef;
+        border-radius: 4px;
+    }
+
+    .image-item-actions {
+        justify-content: flex-end;
+    }
+
+    .min-width-0 {
+        min-width: 0;
+    }
+
     .crop-stage {
         position: relative;
         display: inline-block;
@@ -114,6 +142,10 @@
         .crop-layout {
             grid-template-columns: 1fr;
         }
+
+        .image-item-actions {
+            width: 100%;
+        }
     }
 </style>
 {% endblock %}
@@ -138,80 +170,120 @@
 {% endif %}
 
 <div class="mb-3">
-    <label for="fileInput" class="form-label">Choose Image</label>
-    <input id="fileInput" class="form-control" type="file" accept="image/jpeg,image/png">
+    <label for="fileInput" class="form-label">Choose Images</label>
+    <input id="fileInput" class="form-control" type="file" accept="image/jpeg,image/png" multiple>
 </div>
 
-<div id="status" class="alert alert-info hidden" role="status"></div>
-
-<div id="detectedActions" class="d-flex gap-2 flex-wrap mb-4 hidden">
-    <button id="confirmButton" class="btn btn-success" type="button">
-        <i class="bi bi-check-circle"></i>
-        Confirm crop
-    </button>
-    <button id="adjustCornersButton" class="btn btn-outline-primary" type="button">
-        Manual adjustment
-    </button>
-    <button id="scanAgainButton" class="btn btn-secondary" type="button">
-        <i class="bi bi-arrow-counterclockwise"></i>
-        Scan again
-    </button>
+<div id="batchToolbar" class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 hidden">
+    <span id="batchSummary" class="text-muted" role="status" aria-live="polite"></span>
+    <div class="d-flex gap-2">
+        <button id="downloadSelectedButton" class="btn btn-outline-primary" type="button" disabled>
+            <i class="bi bi-download"></i>
+            Download selected
+        </button>
+        <button id="saveSelectedButton" class="btn btn-primary" type="button" disabled>
+            <i class="bi bi-save"></i>
+            Save selected
+        </button>
+    </div>
 </div>
 
-<div id="croppedActions" class="d-flex gap-2 flex-wrap mb-4 hidden">
-    <button id="saveButton" class="btn btn-primary" type="button">
-        <i class="bi bi-save"></i>
-        Save
-    </button>
-    <button id="downloadButton" class="btn btn-outline-primary" type="button">
-        <i class="bi bi-download"></i>
-        Save and Download
-    </button>
-</div>
+<div id="batchStatus" class="alert hidden" role="status" aria-live="polite"></div>
 
-<div class="crop-layout">
-    <div>
-        <h5>Uploaded Image Preview</h5>
-        <div id="stage" class="crop-stage hidden">
-            <canvas id="sourceCanvas"></canvas>
-            <canvas id="overlayCanvas"></canvas>
-        </div>
-        <div id="rotationControl" class="rotation-control mt-3 hidden">
-            <div class="rotation-label mb-2">
-                <label for="rotationInput" class="d-flex align-items-center gap-2 mb-0">
-                    <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-                    <span>Rotate image</span>
-                </label>
-                <div class="input-group input-group-sm rotation-number ms-auto">
-                    <input
-                        id="rotationInput"
-                        class="form-control"
-                        type="number"
-                        min="-180"
-                        max="180"
-                        step="1"
-                        value="0"
-                        aria-label="Rotation angle in degrees"
-                    >
-                    <span class="input-group-text">&deg;</span>
-                </div>
+<div id="imageQueue" class="image-queue mb-4"></div>
+
+<template id="imageItemTemplate">
+    <article class="image-item card">
+        <div class="card-body d-flex align-items-center gap-3">
+            <input data-role="checkbox" class="form-check-input mt-0" type="checkbox" checked>
+            <img data-role="thumbnail" class="image-thumbnail" alt="">
+            <div class="flex-grow-1 min-width-0">
+                <h3 data-role="name" class="h6 text-truncate mb-1"></h3>
+                <span data-role="status" class="badge text-bg-secondary">Waiting</span>
             </div>
-            <input
-                id="rotationSlider"
-                class="form-range"
-                type="range"
-                min="-180"
-                max="180"
-                step="1"
-                value="0"
-                aria-label="Rotate uploaded image"
-            >
+            <div class="image-item-actions d-flex flex-wrap gap-2">
+                <button data-role="crop" class="btn btn-sm btn-outline-primary" type="button">
+                    <i class="bi bi-crop"></i>
+                    Crop
+                </button>
+                <button data-role="download" class="btn btn-sm btn-outline-primary" type="button" disabled>
+                    <i class="bi bi-download"></i>
+                    Download
+                </button>
+                <button data-role="save" class="btn btn-sm btn-primary" type="button" disabled>
+                    <i class="bi bi-save"></i>
+                    Save
+                </button>
+            </div>
         </div>
+    </article>
+</template>
+
+<div id="editorPanel" class="hidden">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+        <h2 id="activeImageName" class="h4 text-break mb-0"></h2>
     </div>
 
-    <div id="cropPreviewPanel" class="hidden">
-        <h5>Crop Preview</h5>
-        <div id="previewOptions" class="hidden"></div>
+    <div id="status" class="alert alert-info hidden" role="status"></div>
+
+    <div id="detectedActions" class="d-flex gap-2 flex-wrap mb-4 hidden">
+        <button id="confirmButton" class="btn btn-success" type="button">
+            <i class="bi bi-check-circle"></i>
+            Confirm crop
+        </button>
+        <button id="adjustCornersButton" class="btn btn-outline-primary" type="button">
+            Manual adjustment
+        </button>
+        <button id="scanAgainButton" class="btn btn-secondary" type="button">
+            <i class="bi bi-arrow-counterclockwise"></i>
+            Scan again
+        </button>
+    </div>
+
+    <div class="crop-layout">
+        <div>
+            <h5>Uploaded Image Preview</h5>
+            <div id="stage" class="crop-stage hidden">
+                <canvas id="sourceCanvas"></canvas>
+                <canvas id="overlayCanvas"></canvas>
+            </div>
+            <div id="rotationControl" class="rotation-control mt-3 hidden">
+                <div class="rotation-label mb-2">
+                    <label for="rotationInput" class="d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+                        <span>Rotate image</span>
+                    </label>
+                    <div class="input-group input-group-sm rotation-number ms-auto">
+                        <input
+                            id="rotationInput"
+                            class="form-control"
+                            type="number"
+                            min="-180"
+                            max="180"
+                            step="1"
+                            value="0"
+                            aria-label="Rotation angle in degrees"
+                        >
+                        <span class="input-group-text">&deg;</span>
+                    </div>
+                </div>
+                <input
+                    id="rotationSlider"
+                    class="form-range"
+                    type="range"
+                    min="-180"
+                    max="180"
+                    step="1"
+                    value="0"
+                    aria-label="Rotate uploaded image"
+                >
+            </div>
+        </div>
+
+        <div id="cropPreviewPanel" class="hidden">
+            <h5>Crop Preview</h5>
+            <div id="previewOptions" class="hidden"></div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -220,6 +292,15 @@
 <script async src="https://docs.opencv.org/4.10.0/opencv.js"></script>
 <script>
     const fileInput = document.getElementById("fileInput");
+    const imageQueue = document.getElementById("imageQueue");
+    const imageItemTemplate = document.getElementById("imageItemTemplate");
+    const batchToolbar = document.getElementById("batchToolbar");
+    const batchSummary = document.getElementById("batchSummary");
+    const batchStatus = document.getElementById("batchStatus");
+    const downloadSelectedButton = document.getElementById("downloadSelectedButton");
+    const saveSelectedButton = document.getElementById("saveSelectedButton");
+    const editorPanel = document.getElementById("editorPanel");
+    const activeImageName = document.getElementById("activeImageName");
     const stage = document.getElementById("stage");
     const rotationControl = document.getElementById("rotationControl");
     const rotationInput = document.getElementById("rotationInput");
@@ -230,13 +311,13 @@
     const previewOptions = document.getElementById("previewOptions");
     const status = document.getElementById("status");
     const detectedActions = document.getElementById("detectedActions");
-    const croppedActions = document.getElementById("croppedActions");
     const confirmButton = document.getElementById("confirmButton");
     const adjustCornersButton = document.getElementById("adjustCornersButton");
     const scanAgainButton = document.getElementById("scanAgainButton");
-    const saveButton = document.getElementById("saveButton");
-    const downloadButton = document.getElementById("downloadButton");
 
+    let imageItems = [];
+    let activeItem = null;
+    let nextImageItemId = 0;
     let sourceImage = null;
     let baseImageWidth = 0;
     let baseImageHeight = 0;
@@ -253,9 +334,421 @@
     let dragState = null;
     const borderColors = ["#35d07f", "#ff4d4f", "#4d79ff"];
 
+    function imageBaseName(item) {
+        return item.file.name.replace(/\.[^.]+$/, "") || "Cropped Card";
+    }
+
+    function setBatchStatus(message, type = "info") {
+        batchStatus.textContent = message;
+        batchStatus.className = `alert alert-${type}`;
+    }
+
+    function updateBatchActions() {
+        const selected = imageItems.filter((item) => item.selected);
+        const cropped = selected.filter((item) => item.croppedBlob);
+        const saveable = cropped.filter((item) => !item.saved && !item.saving);
+
+        batchToolbar.classList.toggle("hidden", imageItems.length === 0);
+        batchSummary.textContent =
+            `${selected.length} selected; ${cropped.length} cropped`;
+        downloadSelectedButton.disabled = cropped.length === 0;
+        saveSelectedButton.disabled = saveable.length === 0;
+        downloadSelectedButton.textContent = cropped.length
+            ? `Download selected (${cropped.length})`
+            : "Download selected";
+        saveSelectedButton.textContent = saveable.length
+            ? `Save selected (${saveable.length})`
+            : "Save selected";
+    }
+
+    function updateImageItem(item) {
+        const { elements } = item;
+        elements.name.textContent = item.file.name;
+        elements.name.title = item.file.name;
+        elements.checkbox.checked = item.selected;
+        elements.checkbox.setAttribute(
+            "aria-label",
+            `Select ${item.file.name} for bulk actions`
+        );
+        elements.status.textContent = item.saved
+            ? "Saved"
+            : item.croppedBlob
+                ? "Crop ready"
+                : item.stateText;
+        elements.crop.textContent = item === activeItem ? "Editing" : "Crop";
+        elements.crop.disabled = item.saved;
+        elements.download.disabled = !item.croppedBlob;
+        elements.save.disabled = !item.croppedBlob || item.saved || item.saving;
+
+        if (item.croppedBlob) {
+            if (item.thumbnailBlob !== item.croppedBlob) {
+                if (item.thumbnailUrl) URL.revokeObjectURL(item.thumbnailUrl);
+                item.thumbnailBlob = item.croppedBlob;
+                item.thumbnailUrl = URL.createObjectURL(item.croppedBlob);
+            }
+            elements.thumbnail.src = item.thumbnailUrl;
+            elements.thumbnail.alt = `Cropped preview of ${item.file.name}`;
+        } else {
+            if (item.thumbnailUrl) URL.revokeObjectURL(item.thumbnailUrl);
+            item.thumbnailUrl = null;
+            item.thumbnailBlob = null;
+            elements.thumbnail.src = item.sourceUrl;
+            elements.thumbnail.alt = `Preview of ${item.file.name}`;
+        }
+
+        item.element.classList.toggle("active", item === activeItem);
+        updateBatchActions();
+    }
+
+    function createImageItem(file) {
+        const element = imageItemTemplate.content.firstElementChild.cloneNode(true);
+        const elements = Object.fromEntries(
+            Array.from(element.querySelectorAll("[data-role]"))
+                .map((node) => [node.dataset.role, node])
+        );
+        const item = {
+            id: `image-${++nextImageItemId}`,
+            file: file,
+            sourceUrl: URL.createObjectURL(file),
+            selected: true,
+            element: element,
+            elements: elements,
+            stateText: "Waiting to crop",
+            processed: false,
+            rotationDegrees: 0,
+            detectedQuad: null,
+            detectedCandidates: [],
+            selectedCandidateIndex: 0,
+            manualToolsVisible: false,
+            manualAdjustmentActive: false,
+            croppedBlob: null,
+            thumbnailBlob: null,
+            thumbnailUrl: null,
+            saved: false,
+            saving: false,
+            editorMessage: null,
+            editorStatusType: null
+        };
+
+        elements.checkbox.addEventListener("change", function () {
+            item.selected = elements.checkbox.checked;
+            updateBatchActions();
+        });
+        elements.crop.addEventListener("click", function () {
+            activateImageItem(item);
+        });
+        elements.download.addEventListener("click", function () {
+            if (item.croppedBlob) {
+                downloadBlob(item.croppedBlob, `${imageBaseName(item)}.jpg`);
+            }
+        });
+        elements.save.addEventListener("click", function () {
+            saveCroppedItems([item]);
+        });
+
+        imageItems.push(item);
+        imageQueue.appendChild(element);
+        updateImageItem(item);
+        return item;
+    }
+
+    function captureActiveItemState() {
+        if (!activeItem) return;
+        if (activeItem.stateText === "Cropping") {
+            activeItem.stateText = "Crop interrupted; confirm again";
+            activeItem.processed = true;
+        }
+        activeItem.rotationDegrees = rotationDegrees;
+        activeItem.detectedQuad = detectedQuad
+            ? detectedQuad.map((point) => ({ ...point }))
+            : null;
+        activeItem.detectedCandidates = detectedCandidates.map((quad) =>
+            quad.map((point) => ({ ...point }))
+        );
+        activeItem.selectedCandidateIndex = selectedCandidateIndex;
+        activeItem.manualToolsVisible = manualToolsVisible;
+        activeItem.manualAdjustmentActive = manualAdjustmentActive;
+        activeItem.croppedBlob = croppedBlob;
+        updateImageItem(activeItem);
+    }
+
+    function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function createCropUploadForm(items) {
+        const formData = new FormData();
+        items.forEach((item) => {
+            formData.append("names", imageBaseName(item));
+            formData.append(
+                "pictures",
+                item.croppedBlob,
+                `${imageBaseName(item)}.jpg`
+            );
+        });
+        return formData;
+    }
+
+    async function saveCroppedItems(items) {
+        captureActiveItemState();
+        const saveable = items.filter(
+            (item) => item.croppedBlob && !item.saved && !item.saving
+        );
+        if (!saveable.length) return;
+
+        saveable.forEach((item) => {
+            item.saving = true;
+            updateImageItem(item);
+        });
+        saveSelectedButton.disabled = true;
+
+        try {
+            const response = await fetch("/api/crops/save", {
+                method: "POST",
+                body: createCropUploadForm(saveable)
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.detail || "Could not save the selected crops.");
+            }
+            if (!Array.isArray(result.cards) || result.cards.length !== saveable.length) {
+                throw new Error("The save response did not match the selected crops.");
+            }
+
+            saveable.forEach((item, index) => {
+                item.saved = true;
+                item.cardId = result.cards[index].id;
+                item.saving = false;
+                item.stateText = "Saved to your collection";
+                updateImageItem(item);
+            });
+            if (activeItem && saveable.includes(activeItem)) {
+                applyActiveItemLock();
+            }
+            setBatchStatus(`Saved ${saveable.length} crop(s) to your collection.`, "success");
+        } catch (error) {
+            saveable.forEach((item) => {
+                item.saving = false;
+                updateImageItem(item);
+            });
+            setBatchStatus(error.message, "danger");
+        }
+    }
+
+    async function downloadSelectedCrops() {
+        captureActiveItemState();
+        const selected = imageItems.filter(
+            (item) => item.selected && item.croppedBlob
+        );
+        if (!selected.length) return;
+        if (selected.length === 1) {
+            downloadBlob(selected[0].croppedBlob, `${imageBaseName(selected[0])}.jpg`);
+            return;
+        }
+
+        try {
+            const response = await fetch("/api/crops/download", {
+                method: "POST",
+                body: createCropUploadForm(selected)
+            });
+            if (!response.ok) {
+                const result = await response.json();
+                throw new Error(result.detail || "Could not download the selected crops.");
+            }
+            downloadBlob(await response.blob(), "cropped-cards.zip");
+        } catch (error) {
+            setBatchStatus(error.message, "danger");
+        }
+    }
+
+    function applyActiveItemLock() {
+        if (!activeItem) return;
+        const locked = activeItem.saved;
+        confirmButton.disabled = locked || !detectedQuad;
+        adjustCornersButton.disabled = locked;
+        scanAgainButton.disabled = locked;
+        rotationInput.disabled = locked;
+        rotationSlider.disabled = locked;
+        overlayCanvas.classList.toggle(
+            "adjustable",
+            manualAdjustmentActive && !locked
+        );
+    }
+
+    function renderStoredCrop(blob) {
+        previewOptions.replaceChildren();
+        const option = document.createElement("div");
+        option.className = "crop-option selected";
+        const canvas = document.createElement("canvas");
+        canvas.width = 500;
+        canvas.height = 700;
+        canvas.className = "crop-preview-canvas";
+        const label = document.createElement("div");
+        label.className = "crop-option-label";
+        label.textContent = "Cropped card";
+        option.append(canvas, label);
+        previewOptions.appendChild(option);
+
+        const image = new Image();
+        const url = URL.createObjectURL(blob);
+        image.onload = function () {
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            canvas.getContext("2d").drawImage(image, 0, 0);
+            URL.revokeObjectURL(url);
+        };
+        image.onerror = function () {
+            URL.revokeObjectURL(url);
+            showStatus("Unable to display the saved crop preview.", "danger");
+        };
+        image.src = url;
+    }
+
+    function restoreActiveItemState(item) {
+        rotationDegrees = item.rotationDegrees;
+        rotationInput.value = String(rotationDegrees);
+        rotationSlider.value = String(rotationDegrees);
+        detectedCandidates = item.detectedCandidates.map((quad) =>
+            quad.map((point) => ({ ...point }))
+        );
+        selectedCandidateIndex = Math.min(
+            item.selectedCandidateIndex,
+            Math.max(0, detectedCandidates.length - 1)
+        );
+        detectedQuad = detectedCandidates[selectedCandidateIndex]
+            || (item.detectedQuad
+                ? item.detectedQuad.map((point) => ({ ...point }))
+                : null);
+        croppedBlob = item.croppedBlob;
+        manualToolsVisible = item.manualToolsVisible;
+        manualAdjustmentActive = item.manualAdjustmentActive && !!detectedQuad;
+
+        rotationControl.classList.toggle("hidden", !manualToolsVisible);
+        cropPreviewPanel.classList.toggle(
+            "hidden",
+            !manualToolsVisible && !croppedBlob
+        );
+        previewOptions.classList.toggle(
+            "hidden",
+            !manualToolsVisible && !croppedBlob
+        );
+        detectedActions.classList.remove("hidden");
+        adjustCornersButton.textContent = manualAdjustmentActive
+            ? "Finish adjustment"
+            : "Manual adjustment";
+        overlayCanvas.classList.toggle("adjustable", manualAdjustmentActive);
+        confirmButton.disabled = !detectedQuad;
+
+        if (manualToolsVisible && detectedCandidates.length) {
+            renderCandidatePreviews(detectedCandidates);
+            selectedCandidateIndex = Math.min(
+                item.selectedCandidateIndex,
+                detectedCandidates.length - 1
+            );
+            selectCandidate(selectedCandidateIndex);
+        } else if (croppedBlob) {
+            renderStoredCrop(croppedBlob);
+        } else {
+            clearPreview();
+        }
+
+        if (manualAdjustmentActive) {
+            drawManualQuad();
+        } else if (detectedCandidates.length) {
+            drawDetectedCandidates(detectedCandidates);
+        } else {
+            clearOverlay();
+        }
+
+        showStatus(
+            item.editorMessage || "Select Manual adjustment to set the crop corners.",
+            item.editorStatusType || "info"
+        );
+        applyActiveItemLock();
+    }
+
+    function activateImageItem(item) {
+        if (activeItem === item) {
+            editorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+        }
+
+        captureActiveItemState();
+        detectionRequestId += 1;
+        activeItem = item;
+        sourceImage = null;
+        baseImageWidth = 0;
+        baseImageHeight = 0;
+        rotationDegrees = 0;
+        detectedQuad = null;
+        detectedCandidates = [];
+        selectedCandidateIndex = 0;
+        croppedBlob = null;
+        manualAdjustmentActive = false;
+        manualToolsVisible = false;
+        dragState = null;
+
+        editorPanel.classList.remove("hidden");
+        activeImageName.textContent = item.file.name;
+        stage.classList.add("hidden");
+        rotationControl.classList.add("hidden");
+        cropPreviewPanel.classList.add("hidden");
+        previewOptions.classList.add("hidden");
+        detectedActions.classList.add("hidden");
+        clearOverlay();
+        clearPreview();
+        imageItems.forEach(updateImageItem);
+
+        showStatus(`Loading ${item.file.name}...`, "info");
+        sourceImage = new Image();
+        sourceImage.onload = function () {
+            if (activeItem !== item) return;
+            const scale = Math.min(
+                1,
+                900 / Math.max(sourceImage.naturalWidth, sourceImage.naturalHeight)
+            );
+            baseImageWidth = Math.round(sourceImage.naturalWidth * scale);
+            baseImageHeight = Math.round(sourceImage.naturalHeight * scale);
+            if (item.processed) {
+                rotationDegrees = item.rotationDegrees;
+                renderRotatedImage();
+                stage.classList.remove("hidden");
+                restoreActiveItemState(item);
+                return;
+            }
+
+            rotationDegrees = 0;
+            rotationInput.value = "0";
+            rotationSlider.value = "0";
+            renderRotatedImage();
+            stage.classList.remove("hidden");
+            detectCard();
+        };
+        sourceImage.onerror = function () {
+            if (activeItem !== item) return;
+            item.stateText = "Could not load image";
+            item.processed = true;
+            updateImageItem(item);
+            showStatus("Could not load this image. Choose a valid image file.", "danger");
+        };
+        sourceImage.src = item.sourceUrl;
+        editorPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
     function showStatus(message, type) {
         status.textContent = message;
         status.className = `alert alert-${type}`;
+        if (activeItem) {
+            activeItem.editorMessage = message;
+            activeItem.editorStatusType = type;
+        }
     }
 
     function distance(a, b) {
@@ -502,7 +995,11 @@
                 selectCandidate(selectedCandidateIndex);
             }
             croppedBlob = null;
-            croppedActions.classList.add("hidden");
+            if (activeItem) {
+                activeItem.croppedBlob = null;
+                activeItem.stateText = "Crop changed; confirm again";
+                updateImageItem(activeItem);
+            }
             adjustCornersButton.textContent = "Finish adjustment";
             showStatus("Drag the four handles to the card corners. Drag inside the outline to move it.", "info");
             drawManualQuad();
@@ -694,24 +1191,24 @@
             }
 
             self.onmessage = async function (event) {
-                if (!cvReady) {
-                    await new Promise((resolve, reject) => {
-                        if (self.cv.Mat) {
-                            cvReady = true;
-                            resolve();
-                            return;
-                        }
-                        self.cv.onRuntimeInitialized = function () {
-                            cvReady = true;
-                            resolve();
-                        };
-                        setTimeout(function () {
-                            if (!cvReady) reject(new Error("OpenCV did not initialize"));
-                        }, 15000);
-                    });
-                }
-
                 try {
+                    if (!cvReady) {
+                        await new Promise((resolve, reject) => {
+                            if (self.cv.Mat) {
+                                cvReady = true;
+                                resolve();
+                                return;
+                            }
+                            self.cv.onRuntimeInitialized = function () {
+                                cvReady = true;
+                                resolve();
+                            };
+                            setTimeout(function () {
+                                if (!cvReady) reject(new Error("OpenCV did not initialize"));
+                            }, 15000);
+                        });
+                    }
+
                     const cv = self.cv;
                     const input = event.data;
                     const mat = cv.matFromImageData(input.imageData);
@@ -968,7 +1465,17 @@
     }
 
     function selectCandidate(index) {
+        const changed = index !== selectedCandidateIndex;
         selectedCandidateIndex = index;
+        detectedQuad = detectedCandidates[index] || detectedQuad;
+        if (changed && croppedBlob) {
+            croppedBlob = null;
+            if (activeItem) {
+                activeItem.croppedBlob = null;
+                activeItem.stateText = "Crop changed; confirm again";
+                updateImageItem(activeItem);
+            }
+        }
         const options = previewOptions.querySelectorAll(".crop-option");
         options.forEach((option, optionIndex) => {
             option.classList.toggle("selected", optionIndex === index);
@@ -1064,11 +1571,16 @@
         detectedCandidates = [];
         selectedCandidateIndex = 0;
         croppedBlob = null;
+        if (activeItem) {
+            activeItem.processed = false;
+            activeItem.croppedBlob = null;
+            activeItem.stateText = "Scanning";
+            updateImageItem(activeItem);
+        }
         confirmButton.disabled = false;
         adjustCornersButton.disabled = false;
         adjustCornersButton.textContent = "Manual adjustment";
         detectedActions.classList.add("hidden");
-        croppedActions.classList.add("hidden");
         previewOptions.classList.toggle("hidden", !manualToolsVisible);
         cropPreviewPanel.classList.toggle("hidden", !manualToolsVisible);
         clearOverlay();
@@ -1076,12 +1588,31 @@
         showStatus("Scanning the image for a card border...", "info");
 
         const worker = createDetectionWorker();
+        const workerTimeout = setTimeout(function () {
+            worker.terminate();
+            if (requestId !== detectionRequestId) return;
+            clearOverlay();
+            confirmButton.disabled = true;
+            adjustCornersButton.textContent = "Manual adjustment";
+            activeItem.processed = true;
+            activeItem.stateText = "Manual crop needed";
+            updateImageItem(activeItem);
+            detectedActions.classList.remove("hidden");
+            showStatus(
+                "Card detection timed out. Select Manual adjustment to set the crop corners.",
+                "warning"
+            );
+        }, 20000);
         worker.onmessage = function (event) {
+            clearTimeout(workerTimeout);
             if (requestId !== detectionRequestId) return;
             if (!event.data.quad) {
                 clearOverlay();
                 confirmButton.disabled = true;
                 adjustCornersButton.textContent = "Manual adjustment";
+                activeItem.processed = true;
+                activeItem.stateText = "Manual crop needed";
+                updateImageItem(activeItem);
                 detectedActions.classList.remove("hidden");
                 showStatus("Card not found. Select Manual adjustment to set the crop corners.", "warning");
                 return;
@@ -1096,6 +1627,9 @@
                     : [event.data.quad]
             );
             drawDetectedCandidates(detectedCandidates);
+            activeItem.processed = true;
+            activeItem.stateText = "Ready to crop";
+            captureActiveItemState();
             showStatus(
                 "Card border found. Confirm the crop or select Manual adjustment for more options.",
                 "success"
@@ -1103,11 +1637,15 @@
             detectedActions.classList.remove("hidden");
         };
         worker.onerror = function (event) {
+            clearTimeout(workerTimeout);
             if (requestId !== detectionRequestId) return;
             console.error(event);
             clearOverlay();
             confirmButton.disabled = true;
             adjustCornersButton.textContent = "Manual adjustment";
+            activeItem.processed = true;
+            activeItem.stateText = "Manual crop needed";
+            updateImageItem(activeItem);
             detectedActions.classList.remove("hidden");
             showStatus("Card detection failed. Select Manual adjustment to set the crop corners.", "warning");
         };
@@ -1177,10 +1715,14 @@
         renderRotatedImage();
         dragState = null;
         croppedBlob = null;
+        if (activeItem) {
+            activeItem.croppedBlob = null;
+            activeItem.stateText = "Crop changed; confirm again";
+            updateImageItem(activeItem);
+        }
         confirmButton.disabled = !detectedQuad;
         adjustCornersButton.disabled = false;
         detectedActions.classList.remove("hidden");
-        croppedActions.classList.add("hidden");
         if (manualToolsVisible && deferPreviewRefresh) {
             clearPreview();
             cropPreviewPanel.classList.add("hidden");
@@ -1201,6 +1743,7 @@
                 : "Image rotated. Select Manual adjustment to set the crop corners.",
             "info"
         );
+        captureActiveItemState();
     }
 
     function confirmCrop() {
@@ -1208,9 +1751,12 @@
             return;
         }
 
+        const cropItem = activeItem;
         try {
             confirmButton.disabled = true;
             adjustCornersButton.disabled = true;
+            activeItem.stateText = "Cropping";
+            updateImageItem(activeItem);
             manualAdjustmentActive = false;
             dragState = null;
             overlayCanvas.classList.remove("adjustable");
@@ -1218,10 +1764,26 @@
             drawDetectedLines(selectedQuad());
             showStatus("Preparing the cropped preview...", "info");
             const worker = createDetectionWorker();
+            const workerTimeout = setTimeout(function () {
+                worker.terminate();
+                if (activeItem !== cropItem) return;
+                confirmButton.disabled = false;
+                adjustCornersButton.disabled = false;
+                activeItem.stateText = "Crop timed out";
+                updateImageItem(activeItem);
+                showStatus(
+                    "Cropping timed out. Check your connection and try again.",
+                    "danger"
+                );
+            }, 20000);
             worker.onmessage = function (event) {
+                clearTimeout(workerTimeout);
+                if (activeItem !== cropItem) return;
                 if (event.data.type === "crop-error") {
                     confirmButton.disabled = false;
                     adjustCornersButton.disabled = false;
+                    activeItem.stateText = "Crop failed";
+                    updateImageItem(activeItem);
                     showStatus("Unable to crop the detected card.", "danger");
                     return;
                 }
@@ -1229,6 +1791,8 @@
                 if (event.data.type !== "cropped") {
                     confirmButton.disabled = false;
                     adjustCornersButton.disabled = false;
+                    activeItem.stateText = "Crop failed";
+                    updateImageItem(activeItem);
                     showStatus("Unable to crop the detected card.", "danger");
                     return;
                 }
@@ -1254,6 +1818,8 @@
                 if (pixels.length !== expectedLength) {
                     confirmButton.disabled = false;
                     adjustCornersButton.disabled = false;
+                    activeItem.stateText = "Crop failed";
+                    updateImageItem(activeItem);
                     showStatus("Unable to crop the detected card.", "danger");
                     return;
                 }
@@ -1270,6 +1836,8 @@
                     if (!blob) {
                         confirmButton.disabled = false;
                         adjustCornersButton.disabled = false;
+                        activeItem.stateText = "Crop failed";
+                        updateImageItem(activeItem);
                         showStatus("Unable to create the cropped image.", "danger");
                         return;
                     }
@@ -1278,7 +1846,6 @@
                     adjustCornersButton.disabled = false;
                     adjustCornersButton.textContent = "Manual adjustment";
                     detectedActions.classList.remove("hidden");
-                    croppedActions.classList.remove("hidden");
                     cropPreviewPanel.classList.remove("hidden");
                     previewOptions.classList.remove("hidden");
                     if (!manualToolsVisible) {
@@ -1292,13 +1859,21 @@
                             previewOptions.replaceChildren(selectedOption);
                         }
                     }
+                    activeItem.croppedBlob = blob;
+                    activeItem.processed = true;
+                    activeItem.stateText = "Crop ready";
                     showStatus("Crop ready.", "success");
+                    captureActiveItemState();
                 }, "image/jpeg", 0.92);
             };
             worker.onerror = function (event) {
+                clearTimeout(workerTimeout);
+                if (activeItem !== cropItem) return;
                 console.error(event);
                 confirmButton.disabled = false;
                 adjustCornersButton.disabled = false;
+                activeItem.stateText = "Crop failed";
+                updateImageItem(activeItem);
                 showStatus("Unable to crop the detected card.", "danger");
             };
 
@@ -1321,41 +1896,23 @@
             console.error(error);
             confirmButton.disabled = false;
             adjustCornersButton.disabled = false;
+            activeItem.stateText = "Crop failed";
+            updateImageItem(activeItem);
             showStatus("Unable to crop the detected card.", "danger");
         }
     }
 
     fileInput.addEventListener("change", function () {
-        const file = fileInput.files[0];
-        if (!file) {
-            return;
-        }
+        const files = Array.from(fileInput.files || []);
+        fileInput.value = "";
+        if (!files.length) return;
 
-        detectionRequestId += 1;
-        manualToolsVisible = false;
-        manualAdjustmentActive = false;
-        rotationControl.classList.add("hidden");
-        cropPreviewPanel.classList.add("hidden");
-        previewOptions.classList.add("hidden");
-        detectedActions.classList.add("hidden");
-        croppedActions.classList.add("hidden");
-        adjustCornersButton.textContent = "Manual adjustment";
-        sourceImage = new Image();
-        sourceImage.onload = function () {
-            const scale = Math.min(
-                1,
-                900 / Math.max(sourceImage.naturalWidth, sourceImage.naturalHeight)
-            );
-            baseImageWidth = Math.round(sourceImage.naturalWidth * scale);
-            baseImageHeight = Math.round(sourceImage.naturalHeight * scale);
-            rotationDegrees = 0;
-            rotationInput.value = "0";
-            rotationSlider.value = "0";
-            renderRotatedImage();
-            stage.classList.remove("hidden");
-            detectCard();
-        };
-        sourceImage.src = URL.createObjectURL(file);
+        batchStatus.classList.add("hidden");
+        const addedItems = files.map(createImageItem);
+        updateBatchActions();
+        if (!activeItem && addedItems.length) {
+            activateImageItem(addedItems[0]);
+        }
     });
 
     rotationSlider.addEventListener("input", function () {
@@ -1368,30 +1925,12 @@
     confirmButton.addEventListener("click", confirmCrop);
     adjustCornersButton.addEventListener("click", toggleCornerAdjustment);
     scanAgainButton.addEventListener("click", detectCard);
-
-    downloadButton.addEventListener("click", function () {
-        if (!croppedBlob) {
-            return;
-        }
-
-        const url = URL.createObjectURL(croppedBlob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "cropped-pokemon-card.jpg";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-    });
-
-    saveButton.addEventListener("click", function () {
-        if (!croppedBlob) {
-            return;
-        }
-
-        showStatus(
-            "The cropped image is ready. Database save will be connected in the backend step.",
-            "info"
+    downloadSelectedButton.addEventListener("click", downloadSelectedCrops);
+    saveSelectedButton.addEventListener("click", function () {
+        saveCroppedItems(
+            imageItems.filter(
+                (item) => item.selected && item.croppedBlob && !item.saved && !item.saving
+            )
         );
     });
 </script>
