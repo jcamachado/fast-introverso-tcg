@@ -35,6 +35,12 @@
         pointer-events: none;
     }
 
+    #overlayCanvas.adjustable {
+        pointer-events: auto;
+        touch-action: none;
+        cursor: crosshair;
+    }
+
     #previewOptions {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -124,6 +130,9 @@
         <i class="bi bi-check-circle"></i>
         Confirm crop
     </button>
+    <button id="adjustCornersButton" class="btn btn-outline-primary" type="button">
+        Adjust corners
+    </button>
     <button id="scanAgainButton" class="btn btn-secondary" type="button">
         <i class="bi bi-arrow-counterclockwise"></i>
         Scan again
@@ -169,6 +178,7 @@
     const detectedActions = document.getElementById("detectedActions");
     const croppedActions = document.getElementById("croppedActions");
     const confirmButton = document.getElementById("confirmButton");
+    const adjustCornersButton = document.getElementById("adjustCornersButton");
     const scanAgainButton = document.getElementById("scanAgainButton");
     const saveButton = document.getElementById("saveButton");
     const downloadButton = document.getElementById("downloadButton");
@@ -180,6 +190,8 @@
     let croppedBlob = null;
     let detectionWorker = null;
     let borderAnimationFrame = null;
+    let manualAdjustmentActive = false;
+    let dragState = null;
     const borderColors = ["#35d07f", "#ff4d4f", "#4d79ff"];
 
     function showStatus(message, type) {
@@ -248,6 +260,201 @@
         context.stroke();
         context.restore();
     }
+
+    function createDefaultQuad() {
+        const aspect = 63.5 / 88.9;
+        const height = Math.min(
+            sourceCanvas.height * 0.8,
+            sourceCanvas.width * 0.8 / aspect
+        );
+        const width = height * aspect;
+        const left = (sourceCanvas.width - width) / 2;
+        const top = (sourceCanvas.height - height) / 2;
+
+        return [
+            { x: left, y: top },
+            { x: left + width, y: top },
+            { x: left + width, y: top + height },
+            { x: left, y: top + height }
+        ];
+    }
+
+    function selectedQuad() {
+        return detectedCandidates[selectedCandidateIndex];
+    }
+
+    function isValidQuad(points) {
+        let direction = 0;
+        let area = 0;
+
+        for (let index = 0; index < points.length; index++) {
+            const current = points[index];
+            const next = points[(index + 1) % points.length];
+            const afterNext = points[(index + 2) % points.length];
+            const cross = (next.x - current.x) * (afterNext.y - next.y)
+                - (next.y - current.y) * (afterNext.x - next.x);
+
+            if (Math.abs(cross) < 0.5) return false;
+            if (direction && Math.sign(cross) !== direction) return false;
+            direction = Math.sign(cross);
+            area += current.x * next.y - next.x * current.y;
+        }
+
+        return Math.abs(area) / 2 > sourceCanvas.width * sourceCanvas.height * 0.001;
+    }
+
+    function pointInQuad(point, quad) {
+        let inside = false;
+        for (let index = 0, previous = quad.length - 1; index < quad.length; previous = index++) {
+            const currentPoint = quad[index];
+            const previousPoint = quad[previous];
+            const intersects = (
+                currentPoint.y > point.y
+            ) !== (
+                previousPoint.y > point.y
+            ) && point.x < (
+                (previousPoint.x - currentPoint.x)
+                * (point.y - currentPoint.y)
+                / (previousPoint.y - currentPoint.y)
+                + currentPoint.x
+            );
+            if (intersects) inside = !inside;
+        }
+        return inside;
+    }
+
+    function pointerCanvasPoint(event) {
+        const bounds = overlayCanvas.getBoundingClientRect();
+        return {
+            x: (event.clientX - bounds.left) * overlayCanvas.width / bounds.width,
+            y: (event.clientY - bounds.top) * overlayCanvas.height / bounds.height
+        };
+    }
+
+    function drawManualQuad() {
+        const quad = selectedQuad();
+        if (!quad) return;
+
+        clearOverlay();
+        const context = overlayCanvas.getContext("2d");
+        const bounds = overlayCanvas.getBoundingClientRect();
+        const scale = overlayCanvas.width / bounds.width;
+        const radius = 9 * scale;
+
+        context.beginPath();
+        context.moveTo(quad[0].x, quad[0].y);
+        for (let index = 1; index < quad.length; index++) {
+            context.lineTo(quad[index].x, quad[index].y);
+        }
+        context.closePath();
+        context.fillStyle = "rgba(49, 87, 213, 0.12)";
+        context.fill();
+        context.strokeStyle = "#35d07f";
+        context.lineWidth = 3 * scale;
+        context.stroke();
+
+        quad.forEach((point, index) => {
+            context.beginPath();
+            context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+            context.fillStyle = "#ffffff";
+            context.fill();
+            context.strokeStyle = borderColors[index % borderColors.length];
+            context.lineWidth = 3 * scale;
+            context.stroke();
+        });
+    }
+
+    function toggleCornerAdjustment() {
+        if (!manualAdjustmentActive && !detectedCandidates.length) {
+            detectedCandidates = [createDefaultQuad()];
+            selectedCandidateIndex = 0;
+            detectedQuad = detectedCandidates[0];
+            confirmButton.disabled = false;
+        }
+
+        manualAdjustmentActive = !manualAdjustmentActive;
+        dragState = null;
+        overlayCanvas.classList.toggle("adjustable", manualAdjustmentActive);
+        previewOptions.classList.add("hidden");
+
+        if (manualAdjustmentActive) {
+            croppedBlob = null;
+            croppedActions.classList.add("hidden");
+            adjustCornersButton.textContent = "Finish adjustment";
+            showStatus("Drag the four handles to the card corners. Drag inside the outline to move it.", "info");
+            drawManualQuad();
+            return;
+        }
+
+        adjustCornersButton.textContent = "Adjust corners";
+        drawDetectedLines(selectedQuad());
+        showStatus("Review the outline, then confirm the crop.", "info");
+    }
+
+    overlayCanvas.addEventListener("pointerdown", function (event) {
+        if (!manualAdjustmentActive) return;
+        const quad = selectedQuad();
+        if (!quad) return;
+
+        const point = pointerCanvasPoint(event);
+        const bounds = overlayCanvas.getBoundingClientRect();
+        const hitRadius = 14 * overlayCanvas.width / bounds.width;
+        const cornerIndex = quad.findIndex((corner) => distance(corner, point) <= hitRadius);
+
+        if (cornerIndex >= 0) {
+            dragState = { type: "corner", cornerIndex: cornerIndex };
+        } else if (pointInQuad(point, quad)) {
+            dragState = {
+                type: "move",
+                start: point,
+                originalQuad: quad.map((corner) => ({ ...corner }))
+            };
+        } else {
+            return;
+        }
+
+        overlayCanvas.setPointerCapture(event.pointerId);
+        event.preventDefault();
+    });
+
+    overlayCanvas.addEventListener("pointermove", function (event) {
+        if (!manualAdjustmentActive || !dragState) return;
+
+        const point = pointerCanvasPoint(event);
+        const quad = selectedQuad().map((corner) => ({ ...corner }));
+
+        if (dragState.type === "corner") {
+            quad[dragState.cornerIndex] = {
+                x: Math.max(0, Math.min(sourceCanvas.width, point.x)),
+                y: Math.max(0, Math.min(sourceCanvas.height, point.y))
+            };
+        } else {
+            const deltaX = point.x - dragState.start.x;
+            const deltaY = point.y - dragState.start.y;
+            const minX = Math.min(...dragState.originalQuad.map((corner) => corner.x));
+            const maxX = Math.max(...dragState.originalQuad.map((corner) => corner.x));
+            const minY = Math.min(...dragState.originalQuad.map((corner) => corner.y));
+            const maxY = Math.max(...dragState.originalQuad.map((corner) => corner.y));
+            const boundedX = Math.max(-minX, Math.min(sourceCanvas.width - maxX, deltaX));
+            const boundedY = Math.max(-minY, Math.min(sourceCanvas.height - maxY, deltaY));
+            dragState.originalQuad.forEach((corner, index) => {
+                quad[index] = { x: corner.x + boundedX, y: corner.y + boundedY };
+            });
+        }
+
+        if (isValidQuad(quad)) {
+            detectedCandidates[selectedCandidateIndex] = quad;
+            detectedQuad = quad;
+            drawManualQuad();
+        }
+    });
+
+    function endCornerDrag() {
+        dragState = null;
+    }
+
+    overlayCanvas.addEventListener("pointerup", endCornerDrag);
+    overlayCanvas.addEventListener("pointercancel", endCornerDrag);
 
     function drawDetectedCandidates(candidates) {
         if (borderAnimationFrame) {
@@ -369,59 +576,47 @@
 
                     if (input.action === "crop") {
                         const points = input.quad;
-                        const inset = 1;
-                        const left = Math.max(
-                            0,
-                            Math.ceil(Math.min(...points.map((point) => point.x))) + inset
+                        const outputWidth = 500;
+                        const outputHeight = 700;
+                        const sourcePoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                            points[0].x, points[0].y,
+                            points[1].x, points[1].y,
+                            points[2].x, points[2].y,
+                            points[3].x, points[3].y
+                        ]);
+                        const destinationPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                            0, 0,
+                            outputWidth - 1, 0,
+                            outputWidth - 1, outputHeight - 1,
+                            0, outputHeight - 1
+                        ]);
+                        const transform = cv.getPerspectiveTransform(
+                            sourcePoints,
+                            destinationPoints
                         );
-                        const top = Math.max(
-                            0,
-                            Math.ceil(Math.min(...points.map((point) => point.y))) + inset
+                        const warped = new cv.Mat();
+                        cv.warpPerspective(
+                            mat,
+                            warped,
+                            transform,
+                            new cv.Size(outputWidth, outputHeight),
+                            cv.INTER_CUBIC,
+                            cv.BORDER_REPLICATE,
+                            new cv.Scalar(0, 0, 0, 0)
                         );
-                        const right = Math.min(
-                            mat.cols,
-                            Math.floor(Math.max(...points.map((point) => point.x))) - inset
-                        );
-                        const bottom = Math.min(
-                            mat.rows,
-                            Math.floor(Math.max(...points.map((point) => point.y))) - inset
-                        );
-                        const cropRect = new cv.Rect(
-                            left,
-                            top,
-                            Math.max(1, right - left),
-                            Math.max(1, bottom - top)
-                        );
-                        const sourcePixels = mat.data;
-                        const sourceChannels = 4;
-                        const pixels = new Uint8ClampedArray(
-                            cropRect.width * cropRect.height * sourceChannels
-                        );
-
-                        for (let y = 0; y < cropRect.height; y++) {
-                            const sourceRow =
-                                (cropRect.y + y) * mat.cols * sourceChannels;
-                            const targetRow =
-                                y * cropRect.width * sourceChannels;
-                            const rowLength =
-                                cropRect.width * sourceChannels;
-                            pixels.set(
-                                sourcePixels.subarray(
-                                    sourceRow + cropRect.x * sourceChannels,
-                                    sourceRow + (cropRect.x + cropRect.width) * sourceChannels
-                                ),
-                                targetRow
-                            );
-                        }
-
+                        const pixels = new Uint8ClampedArray(warped.data);
                         const transferBuffer = pixels.buffer;
 
+                        sourcePoints.delete();
+                        destinationPoints.delete();
+                        transform.delete();
+                        warped.delete();
                         mat.delete();
 
                         self.postMessage({
                             type: "cropped",
-                            width: cropRect.width,
-                            height: cropRect.height,
+                            width: outputWidth,
+                            height: outputHeight,
                             pixels: transferBuffer
                         }, [transferBuffer]);
                         return;
@@ -719,12 +914,19 @@
             return;
         }
 
+        manualAdjustmentActive = false;
+        dragState = null;
+        overlayCanvas.classList.remove("adjustable");
         detectedQuad = null;
         detectedCandidates = [];
         selectedCandidateIndex = 0;
         croppedBlob = null;
+        confirmButton.disabled = false;
+        adjustCornersButton.disabled = false;
+        adjustCornersButton.textContent = "Adjust corners";
         detectedActions.classList.add("hidden");
         croppedActions.classList.add("hidden");
+        previewOptions.classList.remove("hidden");
         clearOverlay();
         clearPreview();
         showStatus("Scanning the image for a card border...", "info");
@@ -733,11 +935,16 @@
         worker.onmessage = function (event) {
             if (!event.data.quad) {
                 clearOverlay();
-                showStatus("Card not found", "warning");
+                confirmButton.disabled = true;
+                adjustCornersButton.textContent = "Set corners manually";
+                detectedActions.classList.remove("hidden");
+                showStatus("Card not found. You can set the crop corners manually.", "warning");
                 return;
             }
 
             detectedQuad = event.data.quad;
+            confirmButton.disabled = false;
+            adjustCornersButton.textContent = "Adjust corners";
             renderCandidatePreviews(
                 event.data.candidates && event.data.candidates.length
                     ? event.data.candidates
@@ -750,7 +957,10 @@
         worker.onerror = function (event) {
             console.error(event);
             clearOverlay();
-            showStatus("Card not found", "warning");
+            confirmButton.disabled = true;
+            adjustCornersButton.textContent = "Set corners manually";
+            detectedActions.classList.remove("hidden");
+            showStatus("Card detection failed. You can set the crop corners manually.", "warning");
         };
 
         const context = sourceCanvas.getContext("2d");
@@ -773,30 +983,50 @@
 
         try {
             confirmButton.disabled = true;
+            adjustCornersButton.disabled = true;
+            manualAdjustmentActive = false;
+            dragState = null;
+            overlayCanvas.classList.remove("adjustable");
+            adjustCornersButton.textContent = "Adjust corners";
+            drawDetectedLines(selectedQuad());
             showStatus("Preparing the cropped preview...", "info");
             const worker = createDetectionWorker();
             worker.onmessage = function (event) {
                 if (event.data.type === "crop-error") {
                     confirmButton.disabled = false;
+                    adjustCornersButton.disabled = false;
                     showStatus("Unable to crop the detected card.", "danger");
                     return;
                 }
 
                 if (event.data.type !== "cropped") {
                     confirmButton.disabled = false;
+                    adjustCornersButton.disabled = false;
                     showStatus("Unable to crop the detected card.", "danger");
                     return;
                 }
 
-                const selectedCanvas = previewOptions.querySelectorAll(
+                let selectedCanvas = previewOptions.querySelectorAll(
                     ".crop-preview-canvas"
                 )[selectedCandidateIndex];
+                if (!selectedCanvas) {
+                    const option = document.createElement("div");
+                    option.className = "crop-option selected";
+                    selectedCanvas = document.createElement("canvas");
+                    selectedCanvas.className = "crop-preview-canvas";
+                    const label = document.createElement("div");
+                    label.className = "crop-option-label";
+                    label.textContent = "Manual crop";
+                    option.append(selectedCanvas, label);
+                    previewOptions.replaceChildren(option);
+                }
                 selectedCanvas.width = event.data.width;
                 selectedCanvas.height = event.data.height;
                 const pixels = new Uint8ClampedArray(event.data.pixels);
                 const expectedLength = selectedCanvas.width * selectedCanvas.height * 4;
                 if (pixels.length !== expectedLength) {
                     confirmButton.disabled = false;
+                    adjustCornersButton.disabled = false;
                     showStatus("Unable to crop the detected card.", "danger");
                     return;
                 }
@@ -810,16 +1040,26 @@
                 clearOverlay();
 
                 selectedCanvas.toBlob(function (blob) {
+                    if (!blob) {
+                        confirmButton.disabled = false;
+                        adjustCornersButton.disabled = false;
+                        showStatus("Unable to create the cropped image.", "danger");
+                        return;
+                    }
                     croppedBlob = blob;
                     confirmButton.disabled = false;
-                    detectedActions.classList.add("hidden");
+                    adjustCornersButton.disabled = false;
+                    adjustCornersButton.textContent = "Adjust corners";
+                    detectedActions.classList.remove("hidden");
                     croppedActions.classList.remove("hidden");
+                    previewOptions.classList.remove("hidden");
                     showStatus("Crop ready.", "success");
                 }, "image/jpeg", 0.92);
             };
             worker.onerror = function (event) {
                 console.error(event);
                 confirmButton.disabled = false;
+                adjustCornersButton.disabled = false;
                 showStatus("Unable to crop the detected card.", "danger");
             };
 
@@ -841,6 +1081,7 @@
         } catch (error) {
             console.error(error);
             confirmButton.disabled = false;
+            adjustCornersButton.disabled = false;
             showStatus("Unable to crop the detected card.", "danger");
         }
     }
@@ -873,6 +1114,7 @@
     });
 
     confirmButton.addEventListener("click", confirmCrop);
+    adjustCornersButton.addEventListener("click", toggleCornerAdjustment);
     scanAgainButton.addEventListener("click", detectCard);
 
     downloadButton.addEventListener("click", function () {

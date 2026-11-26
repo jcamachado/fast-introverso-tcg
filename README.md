@@ -24,6 +24,13 @@ picture is saved with the card. You can edit the detected name and search again.
 Install the integration with the other application dependencies using
 `pip install -r requirements.txt`.
 
+## Crop adjustment
+
+On the **Crop Card Image** page, use **Adjust corners** to refine the detected
+outline. Drag the corner handles to fit the card, or drag inside the outline to
+move it. If automatic detection misses, **Set corners manually** creates an
+adjustable starting outline. Confirming the crop applies perspective correction.
+
 testing user
 jaxe
 a1a1a1a1
